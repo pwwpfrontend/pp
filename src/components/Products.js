@@ -1,192 +1,271 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import { Package, Search, Filter, Download, FileText, Edit, Trash2, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { 
+  Package, 
+  Search, 
+  Filter, 
+  ChevronDown, 
+  ChevronUp, 
+  Eye, 
+  EyeOff, 
+  AlertTriangle,
+  Download,
+  FileText,
+  Edit,
+  Trash2,
+  User,
+  Shield,
+  Crown
+} from 'lucide-react';
 
 // Mock user data - replace with actual user context/authentication
 const mockUser = {
-  role: 'Professional', // Professional, Expert, Master, Admin
+  role: 'Professional', // Professional, Expert, Master
   name: 'Optimus'
 };
 
-// Mock API functions - replace with actual API calls
-const apiService = {
-  async getAllProducts() {
-    try {
-      const response = await fetch('https://njs-01.optimuslab.space/webhook/all_products');
-      if (!response.ok) throw new Error('Failed to fetch products');
-      return await response.json();
-    } catch (error) {
-      console.error('API Error:', error);
-      // Return mock data for development
-      return mockProducts;
-    }
-  },
-
-  async addProduct(productData) {
-    // Mock implementation
-    console.log('Adding product:', productData);
-    return { success: true, message: 'Product added successfully' };
-  },
-
-  async editProduct(id, productData) {
-    // Mock implementation
-    console.log('Editing product:', id, productData);
-    return { success: true, message: 'Product updated successfully' };
-  },
-
-  async deleteProduct(id) {
-    // Mock implementation
-    console.log('Deleting product:', id);
-    return { success: true, message: 'Product deleted successfully' };
+// Role-based pricing logic
+const getRoleBasedPrice = (model, userRole) => {
+  if (!model) return '—';
+  
+  const standardReseller = model['Standard Reseller'];
+  const valueAddReseller = model['Value Add Reseller'];
+  const msrp = model.msrp;
+  
+  // Convert string numbers to actual numbers
+  const standard = typeof standardReseller === 'string' ? parseFloat(standardReseller) : standardReseller;
+  const valueAdd = typeof valueAddReseller === 'string' ? parseFloat(valueAddReseller) : valueAddReseller;
+  const msrpValue = typeof msrp === 'string' ? parseFloat(msrp) : msrp;
+  
+  switch (userRole) {
+    case 'Professional':
+      if (standard !== null && !isNaN(standard)) return standard;
+      if (msrpValue !== null && !isNaN(msrpValue)) return msrpValue * 0.9; // 10% off
+      return '—';
+      
+    case 'Expert':
+      if (standard !== null && !isNaN(standard) && valueAdd !== null && !isNaN(valueAdd)) {
+        return (standard + valueAdd) / 2; // Average of both
+      }
+      if (standard !== null && !isNaN(standard)) return standard;
+      if (valueAdd !== null && !isNaN(valueAdd)) return valueAdd;
+      if (msrpValue !== null && !isNaN(msrpValue)) return msrpValue * 0.85; // 15% off
+      return '—';
+      
+    case 'Master':
+      if (valueAdd !== null && !isNaN(valueAdd)) return valueAdd;
+      if (msrpValue !== null && !isNaN(msrpValue)) return msrpValue * 0.8; // 20% off
+      return '—';
+      
+    default:
+      return '—';
   }
 };
 
-// Mock products data for development
-const mockProducts = [
-  {
-    id: 1,
-    name: "AIQ Sensor Pro",
-    description: "Advanced air quality monitoring sensor with IoT connectivity and real-time data transmission capabilities for industrial applications.",
-    category: "Hardware",
-    sku: "AIQ-001",
-    image: null,
-    price: null,
-    rolePrices: {
-      "Professional": 299,
-      "Expert": 279,
-      "Master": 259,
-      "msrp": 349
-    },
-    models: [
-      {
-        sku: "AIQ-001-BASIC",
-        name: "Basic Model",
-        duration: "1 Year",
-        prices: {
-          "Professional": 299,
-          "Expert": 279,
-          "Master": 259
+// Data normalization function
+const normalizeProductData = (rawData) => {
+  if (!Array.isArray(rawData)) return [];
+  
+  return rawData.map(item => {
+    // Normalize keys and handle null values
+    const normalized = {
+      _id: item._id || item.id || '',
+      name: item.name || '—',
+      description: item.description || '—',
+      picture: item.picture || '/default_image.svg',
+      category: item.category || 'Unknown',
+      group_id: item.group_id || null,
+      price: item.price !== null && item.price !== undefined ? 
+        (typeof item.price === 'string' ? parseFloat(item.price) : item.price) : null,
+      models: []
+    };
+    
+    // Handle models - parse if stringified JSON
+    if (item.models && Array.isArray(item.models)) {
+      normalized.models = item.models.map(model => {
+        if (typeof model === 'string') {
+          try {
+            return JSON.parse(model);
+          } catch {
+            return { name: model, price: null };
+          }
         }
-      },
-      {
-        sku: "AIQ-001-PREMIUM",
-        name: "Premium Model",
-        duration: "2 Years",
-        prices: {
-          "Professional": 399,
-          "Expert": 379,
-          "Master": 359
+        
+        // Normalize model data
+        const normalizedModel = {
+          id: model.id || model.sku || '',
+          name: model.name || '—',
+          description: model.description || '—',
+          picture: model.picture || '/default_image.svg',
+          sku: model.sku || '',
+          duration: model.duration || '',
+          price: model.price !== null && model.price !== undefined ? 
+            (typeof model.price === 'string' ? parseFloat(model.price) : model.price) : null,
+          ac: model.ac || null
+        };
+        
+        // Add pricing fields if they exist
+        if (model['Standard Reseller'] !== undefined) {
+          normalizedModel['Standard Reseller'] = typeof model['Standard Reseller'] === 'string' ? 
+            parseFloat(model['Standard Reseller']) : model['Standard Reseller'];
         }
+        if (model['Value Add Reseller'] !== undefined) {
+          normalizedModel['Value Add Reseller'] = typeof model['Value Add Reseller'] === 'string' ? 
+            parseFloat(model['Value Add Reseller']) : model['Value Add Reseller'];
+        }
+        if (model.msrp !== undefined) {
+          normalizedModel.msrp = typeof model.msrp === 'string' ? 
+            parseFloat(model.msrp) : model.msrp;
+        }
+        
+        return normalizedModel;
+      });
+    }
+    
+    return normalized;
+  });
+};
+
+// Separate products into hardware and license categories
+const categorizeProducts = (products) => {
+  const hardware = [];
+  const license = [];
+  
+  products.forEach(product => {
+    // Check if it's a license/warranty product
+    if (product.category === 'License' || product.category === 'Warranty' || 
+        (product.models && product.models.some(m => m.sku && m['Standard Reseller']))) {
+      license.push(product);
+    } else {
+      // Hardware products have top-level price OR models with name/description/price
+      if (product.price !== null || 
+          (product.models && product.models.some(m => m.name && m.description && m.price !== null))) {
+        hardware.push(product);
       }
-    ]
-  },
-  {
-    id: 2,
-    name: "Cloud Storage Enterprise",
-    description: "Scalable cloud storage solution with enterprise-grade security and compliance features.",
-    category: "License",
-    sku: "CS-002",
-    image: "cloud_storage.jpg",
-    price: 199,
-    rolePrices: null,
-    models: []
-  },
-  {
-    id: 3,
-    name: "Extended Warranty Package",
-    description: "Comprehensive warranty coverage for all hardware products with 24/7 support and rapid replacement service.",
-    category: "Warranty",
-    sku: "WP-003",
-    image: null,
-    price: 99,
-    rolePrices: null,
-    models: []
-  },
-  {
-    id: 4,
-    name: "AIQ Sensor Pro", // Duplicate for testing
-    description: "Advanced air quality monitoring sensor with IoT connectivity.",
-    category: "Hardware",
-    sku: "AIQ-001-DUP",
-    image: null,
-    price: null,
-    rolePrices: {
-      "Professional": 299,
-      "Expert": 279,
-      "Master": 259,
-      "msrp": 349
-    },
-    models: []
-  }
-];
+    }
+  });
+  
+  return { hardware, license };
+};
 
 const Products = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('products');
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [roleFilter, setRoleFilter] = useState('all');
-  const [expandedDescriptions, setExpandedDescriptions] = useState(new Set());
+  const [sortBy, setSortBy] = useState('name');
   const [expandedModels, setExpandedModels] = useState(new Set());
+  const [expandedLicense, setExpandedLicense] = useState(new Set());
+  const [rolePreview, setRolePreview] = useState(mockUser.role);
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
   };
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
-
-  const fetchProducts = async () => {
+  // Fetch products from API
+  const fetchProducts = useCallback(async () => {
     setLoading(true);
+    setError(null);
+    
     try {
-      const data = await apiService.getAllProducts();
-      setProducts(data);
+      const response = await fetch('https://njs-01.optimuslab.space/webhook/all_products');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      const normalizedData = normalizeProductData(data);
+      setProducts(normalizedData);
     } catch (error) {
       console.error('Error fetching products:', error);
-      setProducts(mockProducts);
+      setError('Failed to fetch products. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const getPriceForRole = (product) => {
-    if (product.price !== null && product.price !== undefined) {
-      return product.price;
-    }
-    
-    if (product.rolePrices && typeof product.rolePrices === 'object') {
-      if (mockUser.role === 'Admin') {
-        return product.rolePrices.msrp || 'Multiple Prices';
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  // Categorize products
+  const { hardware, license } = useMemo(() => categorizeProducts(products), [products]);
+
+  // Filter and search products
+  const filteredHardware = useMemo(() => {
+    let filtered = hardware.filter(product => {
+      const matchesSearch = 
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (product.models && product.models.some(m => 
+          m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          m.sku?.toLowerCase().includes(searchTerm.toLowerCase())
+        ));
+      
+      const matchesCategory = categoryFilter === 'all' || 
+        (categoryFilter === 'Hardware' && product.category !== 'License' && product.category !== 'Warranty') ||
+        (categoryFilter === 'License' && product.category === 'License') ||
+        (categoryFilter === 'Warranty' && product.category === 'Warranty');
+      
+      return matchesSearch && matchesCategory;
+    });
+
+    // Sort hardware products
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'name':
+          return a.name.localeCompare(b.name);
+        case 'price':
+          const priceA = a.price || 0;
+          const priceB = b.price || 0;
+          return priceA - priceB;
+        default:
+          return 0;
       }
-      return product.rolePrices[mockUser.role] || 'Price on Request';
-    }
-    
-    return 'Price on Request';
-  };
+    });
 
-  const getPriceDisplay = (product) => {
-    const price = getPriceForRole(product);
-    
-    if (price === 'Price on Request') return price;
-    if (price === 'Multiple Prices') return 'Multiple Prices';
-    
-    return `$${price}`;
-  };
+    return filtered;
+  }, [hardware, searchTerm, categoryFilter, sortBy]);
 
-  const toggleDescription = (productId) => {
-    const newExpanded = new Set(expandedDescriptions);
-    if (newExpanded.has(productId)) {
-      newExpanded.delete(productId);
-    } else {
-      newExpanded.add(productId);
-    }
-    setExpandedDescriptions(newExpanded);
-  };
+  const filteredLicense = useMemo(() => {
+    let filtered = license.filter(product => {
+      const matchesSearch = 
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (product.models && product.models.some(m => 
+          m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          m.sku?.toLowerCase().includes(searchTerm.toLowerCase())
+        ));
+      
+      const matchesCategory = categoryFilter === 'all' || 
+        (categoryFilter === 'Hardware' && product.category !== 'License' && product.category !== 'Warranty') ||
+        (categoryFilter === 'License' && product.category === 'License') ||
+        (categoryFilter === 'Warranty' && product.category === 'Warranty');
+      
+      return matchesSearch && matchesCategory;
+    });
 
+    // Sort license products
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'group_id':
+          const groupA = parseFloat(a.group_id) || 0;
+          const groupB = parseFloat(b.group_id) || 0;
+          return groupA - groupB;
+        case 'msrp':
+          const msrpA = a.models?.[0]?.msrp || 0;
+          const msrpB = b.models?.[0]?.msrp || 0;
+          return msrpA - msrpB;
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  }, [license, searchTerm, categoryFilter, sortBy]);
+
+  // Toggle model expansion
   const toggleModels = (productId) => {
     const newExpanded = new Set(expandedModels);
     if (newExpanded.has(productId)) {
@@ -197,66 +276,47 @@ const Products = () => {
     setExpandedModels(newExpanded);
   };
 
-  const filteredProducts = products.filter(product => {
-    if (!product || !product.name || !product.sku) {
-      return false;
+  // Toggle license expansion
+  const toggleLicense = (productId) => {
+    const newExpanded = new Set(expandedLicense);
+    if (newExpanded.has(productId)) {
+      newExpanded.delete(productId);
+    } else {
+      newExpanded.add(productId);
     }
-    
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         product.sku.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
-    const matchesRole = roleFilter === 'all' || 
-                       (product.rolePrices && product.rolePrices[roleFilter]);
-    
-    return matchesSearch && matchesCategory && matchesRole;
-  });
-
-  const categories = products && products.length > 0 ? [...new Set(products.map(p => p.category).filter(Boolean))] : [];
-  const roles = ['Professional', 'Expert', 'Master'];
-
-  const handleDeleteProduct = async (productId) => {
-    if (window.confirm('Are you sure you want to delete this product?')) {
-      try {
-        await apiService.deleteProduct(productId);
-        setProducts(products.filter(p => p.id !== productId));
-      } catch (error) {
-        console.error('Error deleting product:', error);
-        alert('Failed to delete product');
-      }
-    }
+    setExpandedLicense(newExpanded);
   };
 
-  const isDuplicate = (product) => {
-    if (!products || !Array.isArray(products) || products.length === 0) {
-      return false;
-    }
-    return products.filter(p => p.name === product.name).length > 1;
-  };
+  // Debounced search
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
-  const ProductCard = ({ product }) => {
-    // Safety check for product object
-    if (!product || !product.id || !product.name) {
-      return null;
-    }
-    
-    const priceDisplay = getPriceDisplay(product);
-    const hasModels = product.models && Array.isArray(product.models) && product.models.length > 0;
-    const isDescriptionExpanded = expandedDescriptions.has(product.id);
-    const isModelsExpanded = expandedModels.has(product.id);
+  // Hardware Product Card
+  const HardwareProductCard = ({ product }) => {
+    const isModelsExpanded = expandedModels.has(product._id);
+    const hasModels = product.models && product.models.length > 0;
 
     return (
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
         {/* Product Image */}
         <div className="h-48 bg-gray-100 flex items-center justify-center">
-          {product.image ? (
+          {product.picture && product.picture !== '/default_image.svg' ? (
             <img 
-              src={product.image} 
+              src={product.picture} 
               alt={product.name}
               className="h-full w-full object-cover"
+              onError={(e) => {
+                e.target.src = '/default_image.jpeg';
+              }}
             />
           ) : (
             <div className="text-gray-400 text-center">
-              <Package className="w-16 h-16 mx-auto mb-2" />
+              <img src="/default_image.svg" alt="No Image" className="w-16 h-16 mx-auto mb-2" />
               <div className="text-sm">No Image</div>
             </div>
           )}
@@ -264,200 +324,175 @@ const Products = () => {
 
         {/* Product Info */}
         <div className="p-6">
-          {/* Header with duplicate warning */}
-          <div className="flex items-start justify-between mb-3">
-            <h3 className="text-lg font-semibold text-gray-900 flex-1">{product.name}</h3>
-            {isDuplicate(product) && mockUser.role === 'Admin' && (
-              <span className="ml-2 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full flex items-center">
-                <AlertTriangle className="w-3 h-3 mr-1" />
-                Duplicate
-              </span>
-            )}
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">{product.name}</h3>
+          
+          {/* Description */}
+          <p className="text-gray-600 text-sm mb-4 line-clamp-2">
+            {product.description}
+          </p>
+
+          {/* Price */}
+          <div className="mb-4">
+            <div className="text-2xl font-bold text-gray-900">
+              {product.price ? `$${product.price}` : '—'}
+            </div>
           </div>
 
-          {/* SKU */}
-          <p className="text-sm text-gray-500 mb-3">SKU: {product.sku}</p>
-
-          {/* Description */}
-          <div className="mb-4">
-            <p className={`text-gray-600 ${!isDescriptionExpanded ? 'line-clamp-2' : ''}`}>
-              {product.description}
-            </p>
+          {/* Models Button */}
+          {hasModels && (
             <button
-              onClick={() => toggleDescription(product.id)}
-              className="text-[#405952] text-sm hover:underline mt-1 flex items-center"
+              onClick={() => toggleModels(product._id)}
+              className="w-full bg-[#405952] text-white px-4 py-2 rounded-md hover:bg-[#2d3f38] transition-colors flex items-center justify-center"
             >
-              {isDescriptionExpanded ? (
+              {isModelsExpanded ? (
                 <>
-                  <EyeOff className="w-4 h-4 mr-1" />
-                  Show less
+                  <EyeOff className="w-4 h-4 mr-2" />
+                  Hide Models
                 </>
               ) : (
                 <>
-                  <Eye className="w-4 h-4 mr-1" />
-                  Show more
+                  <Eye className="w-4 h-4 mr-2" />
+                  View Models
                 </>
               )}
             </button>
-          </div>
+          )}
 
-          {/* Category */}
-          <div className="mb-4">
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-              {product.category}
-            </span>
-          </div>
-
-          {/* Price Section */}
-          <div className="mb-4">
-            <div className="text-2xl font-bold text-gray-900">
-              {priceDisplay}
-            </div>
-            {mockUser.role === 'Admin' && product.rolePrices && (
-              <div className="mt-2 text-sm text-gray-600">
-                <div>MSRP: ${product.rolePrices.msrp}</div>
-                <div>Professional: ${product.rolePrices.Professional}</div>
-                <div>Expert: ${product.rolePrices.Expert}</div>
-                <div>Master: ${product.rolePrices.Master}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Models Section */}
-          {hasModels && (
-            <div className="mb-4">
-              <button
-                onClick={() => toggleModels(product.id)}
-                className="text-[#405952] text-sm hover:underline flex items-center"
-              >
-                {isModelsExpanded ? (
-                  <>
-                    <EyeOff className="w-4 h-4 mr-1" />
-                    Hide Models
-                  </>
-                ) : (
-                  <>
-                    <Eye className="w-4 h-4 mr-1" />
-                    Show Models
-                  </>
-                )} ({product.models.length})
-              </button>
-              
-              {isModelsExpanded && (
-                <div className="mt-3 overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Model</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
-                        {mockUser.role === 'Admin' && (
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+          {/* Models Table */}
+          {isModelsExpanded && hasModels && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Model Name</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Image</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {product.models.map((model, index) => (
+                    <tr key={index}>
+                      <td className="px-3 py-2 text-gray-900">{model.name}</td>
+                      <td className="px-3 py-2 text-gray-600">{model.description}</td>
+                      <td className="px-3 py-2 text-gray-900">
+                        {model.price ? `$${model.price}` : '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        {model.picture && model.picture !== '/default_image.svg' ? (
+                          <img 
+                            src={model.picture} 
+                            alt={model.name}
+                            className="w-12 h-12 object-cover rounded"
+                            onError={(e) => {
+                              e.target.src = '/default_image.svg';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center">
+                            <img src="/default_image.svg" alt="No Image" className="w-6 h-6" />
+                          </div>
                         )}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {product.models.map((model, index) => {
-                        // Safety check for model object
-                        if (!model || !model.sku || !model.name) {
-                          return null;
-                        }
-                        
-                        return (
-                          <tr key={index}>
-                            <td className="px-3 py-2 text-gray-900">{model.sku}</td>
-                            <td className="px-3 py-2 text-gray-900">{model.name}</td>
-                            <td className="px-3 py-2 text-gray-600">{model.duration}</td>
-                            <td className="px-3 py-2 text-gray-900">
-                              ${model.prices && model.prices[mockUser.role] ? model.prices[mockUser.role] : 'N/A'}
-                            </td>
-                            {mockUser.role === 'Admin' && (
-                              <td className="px-3 py-2">
-                                <button 
-                                  onClick={() => window.location.href = `/edit-product/${product.id}`}
-                                  className="text-blue-600 hover:text-blue-800 text-xs mr-2 flex items-center"
-                                >
-                                  <Edit className="w-3 h-3 mr-1" />
-                                  Edit
-                                </button>
-                                <button className="text-red-600 hover:text-red-800 text-xs flex items-center">
-                                  <Trash2 className="w-3 h-3 mr-1" />
-                                  Delete
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
-          {/* Admin Actions */}
-          {mockUser.role === 'Admin' && (
-            <div className="flex space-x-2 pt-4 border-t border-gray-200">
-              <button 
-                onClick={() => window.location.href = `/edit-product/${product.id}`}
-                className="flex-1 bg-[#405952] text-white px-3 py-2 rounded-md text-sm hover:bg-[#2d3f38] transition-colors flex items-center justify-center"
-              >
-                <Edit className="w-4 h-4 mr-2" />
-                Edit
-              </button>
-              <button 
-                onClick={() => handleDeleteProduct(product.id)}
-                className="flex-1 bg-red-600 text-white px-3 py-2 rounded-md text-sm hover:bg-red-700 transition-colors flex items-center justify-center"
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete
-              </button>
-            </div>
-          )}
+          {/* Admin Actions Placeholder */}
+          {/* TODO: Add admin-only CRUD buttons here */}
         </div>
       </div>
     );
   };
 
-  const CatalogTab = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Product Catalogs</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="border border-gray-200 rounded-lg p-4 text-center">
-            <Download className="w-16 h-16 mx-auto mb-3 text-[#405952]" />
-            <h3 className="font-medium text-gray-900 mb-2">Milesight IoT Product Catalog</h3>
-            <p className="text-gray-600 text-sm mb-3">Complete product catalog with specifications and pricing</p>
-            <button className="bg-[#405952] text-white px-4 py-2 rounded-md hover:bg-[#2d3f38] transition-colors flex items-center mx-auto">
-              <Download className="w-4 h-4 mr-2" />
-              Download PDF
-            </button>
-          </div>
-          
-          <div className="border border-gray-200 rounded-lg p-4 text-center">
-            <Download className="w-16 h-16 mx-auto mb-3 text-[#405952]" />
-            <h3 className="font-medium text-gray-900 mb-2">Humly Price List</h3>
-            <p className="text-gray-600 text-sm mb-3">Current pricing for all Humly products and services</p>
-            <button className="bg-[#405952] text-white px-4 py-2 rounded-md hover:bg-[#2d3f38] transition-colors flex items-center mx-auto">
-              <Download className="w-4 h-4 mr-2" />
-              Download PDF
-            </button>
-          </div>
-        </div>
-      </div>
+  // License Product Accordion
+  const LicenseProductAccordion = ({ product }) => {
+    const isExpanded = expandedLicense.has(product._id);
+    const hasModels = product.models && product.models.length > 0;
 
-      {/* PDF Viewer Placeholder */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Preview</h3>
-        <div className="h-96 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center">
-          <div className="text-center">
-            <FileText className="w-16 h-16 mx-auto mb-2 text-gray-400" />
-            <p className="text-gray-500">PDF Viewer - Select a document to preview</p>
+    return (
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <button
+          onClick={() => toggleLicense(product._id)}
+          className="w-full p-6 text-left hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {product.group_id ? `${product.group_id} — ` : ''}{product.name}
+              </h3>
+              <p className="text-gray-600 text-sm mt-1">{product.description}</p>
+            </div>
+            {isExpanded ? (
+              <ChevronUp className="w-5 h-5 text-gray-500" />
+            ) : (
+              <ChevronDown className="w-5 h-5 text-gray-500" />
+            )}
           </div>
-        </div>
+        </button>
+
+        {/* Models Table */}
+        {isExpanded && hasModels && (
+          <div className="px-6 pb-6">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">MSRP</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Standard Reseller</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Value Add Reseller</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Your Price</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {product.models.map((model, index) => (
+                    <tr key={index}>
+                      <td className="px-3 py-2 text-gray-900 font-mono">{model.sku}</td>
+                      <td className="px-3 py-2 text-gray-900">{model.name}</td>
+                      <td className="px-3 py-2 text-gray-600">{model.duration}</td>
+                      <td className="px-3 py-2 text-gray-900">
+                        {model.msrp ? `$${model.msrp}` : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-gray-900">
+                        {model['Standard Reseller'] ? `$${model['Standard Reseller']}` : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-gray-900">
+                        {model['Value Add Reseller'] ? `$${model['Value Add Reseller']}` : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-gray-900 font-semibold">
+                        {getRoleBasedPrice(model, rolePreview) !== '—' ? 
+                          `$${getRoleBasedPrice(model, rolePreview)}` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Admin Actions Placeholder */}
+        {/* TODO: Add admin-only CRUD buttons here */}
       </div>
+    );
+  };
+
+  // Loading Skeleton
+  const LoadingSkeleton = () => (
+    <div className="space-y-6">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="bg-white rounded-lg shadow-md p-6 animate-pulse">
+          <div className="h-6 bg-gray-200 rounded mb-4"></div>
+          <div className="h-4 bg-gray-200 rounded mb-2"></div>
+          <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+        </div>
+      ))}
     </div>
   );
 
@@ -473,17 +508,9 @@ const Products = () => {
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h1 className="text-3xl font-bold text-gray-900">Products</h1>
-              {mockUser.role === 'Admin' && (
-                <button 
-                  onClick={() => window.location.href = '/add-product'}
-                  className="bg-[#405952] text-white px-4 py-2 rounded-md hover:bg-[#2d3f38] transition-colors flex items-center"
-                >
-                  <Package className="w-4 h-4 mr-2" />
-                  Add Product
-                </button>
-              )}
+              {/* TODO: Add admin-only Add Product button here */}
             </div>
-            <p className="text-gray-600">Manage and view all available products in your partnership portfolio</p>
+            <p className="text-gray-600">Browse and manage all available products in your partnership portfolio</p>
           </div>
 
           {/* Tabs */}
@@ -498,89 +525,145 @@ const Products = () => {
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  All Products
+                  Products
                 </button>
                 <button
-                  onClick={() => setActiveTab('catalog')}
+                  onClick={() => setActiveTab('license')}
                   className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'catalog'
+                    activeTab === 'license'
                       ? 'border-[#405952] text-[#405952]'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  Catalog & Price Lists
+                  License
                 </button>
               </nav>
             </div>
 
             <div className="p-6">
-              {activeTab === 'products' ? (
-                <>
-                  {/* Filters and Search */}
-                  <div className="mb-6 space-y-4">
-                    <div className="flex flex-col sm:flex-row gap-4">
-                      <div className="flex-1 relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                        <input
-                          type="text"
-                          placeholder="Search products by name or SKU..."
-                          value={searchTerm}
-                          onChange={(e) => setSearchTerm(e.target.value)}
-                          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent"
-                        />
-                      </div>
-                      <div className="relative">
-                        <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                        <select
-                          value={categoryFilter}
-                          onChange={(e) => setCategoryFilter(e.target.value)}
-                          className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent appearance-none"
-                        >
-                          <option value="all">All Categories</option>
-                          {categories.map(category => (
-                            <option key={category} value={category}>{category}</option>
-                          ))}
-                        </select>
-                      </div>
-                      {mockUser.role === 'Admin' && (
-                        <div className="relative">
-                          <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                          <select
-                            value={roleFilter}
-                            onChange={(e) => setRoleFilter(e.target.value)}
-                            className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent appearance-none"
-                          >
-                            <option value="all">All Roles</option>
-                            {roles.map(role => (
-                              <option key={role} value={role}>{role}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                    </div>
+              {/* Filters and Search */}
+              <div className="mb-6 space-y-4">
+                <div className="flex flex-col sm:flex-row gap-4">
+                  {/* Search */}
+                  <div className="flex-1 relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input
+                      type="text"
+                      placeholder="Search products by name, SKU, or model name..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent"
+                    />
                   </div>
 
-                  {/* Products Grid */}
-                  {loading ? (
+                  {/* Category Filter */}
+                  <div className="relative">
+                    <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <select
+                      value={categoryFilter}
+                      onChange={(e) => setCategoryFilter(e.target.value)}
+                      className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent appearance-none"
+                    >
+                      <option value="all">All Categories</option>
+                      <option value="Hardware">Hardware</option>
+                      <option value="License">License</option>
+                      <option value="Warranty">Warranty</option>
+                    </select>
+                  </div>
+
+                  {/* Sort */}
+                  <div className="relative">
+                    <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent appearance-none"
+                    >
+                      {activeTab === 'products' ? (
+                        <>
+                          <option value="name">Sort by Name</option>
+                          <option value="price">Sort by Price</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="group_id">Sort by Group ID</option>
+                          <option value="msrp">Sort by MSRP</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+
+                  {/* Role Preview */}
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <select
+                      value={rolePreview}
+                      onChange={(e) => setRolePreview(e.target.value)}
+                      className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent appearance-none"
+                    >
+                      <option value="Professional">
+                        <Shield className="w-4 h-4 mr-2" />
+                        Professional
+                      </option>
+                      <option value="Expert">
+                        <User className="w-4 h-4 mr-2" />
+                        Expert
+                      </option>
+                      <option value="Master">
+                        <Crown className="w-4 h-4 mr-2" />
+                        Master
+                      </option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Content */}
+              {loading ? (
+                <LoadingSkeleton />
+              ) : error ? (
+                <div className="text-center py-12">
+                  <AlertTriangle className="w-16 h-16 mx-auto mb-4 text-red-500" />
+                  <p className="text-gray-600 mb-4">{error}</p>
+                  <button
+                    onClick={fetchProducts}
+                    className="bg-[#405952] text-white px-4 py-2 rounded-md hover:bg-[#2d3f38] transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : activeTab === 'products' ? (
+                // Products Tab (Hardware)
+                <div>
+                  {filteredHardware.length === 0 ? (
                     <div className="text-center py-12">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#405952] mx-auto mb-4"></div>
-                      <p className="text-gray-600">Loading products...</p>
-                    </div>
-                  ) : filteredProducts.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Search className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-                      <p className="text-gray-600">No products found matching your criteria</p>
+                      <Package className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                      <p className="text-gray-600">No hardware products found matching your criteria</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {filteredProducts.map(product => (
-                        <ProductCard key={product.id} product={product} />
+                      {filteredHardware.map(product => (
+                        <HardwareProductCard key={product._id} product={product} />
                       ))}
                     </div>
                   )}
-                </>
+                </div>
               ) : (
-                <CatalogTab />
+                // License Tab
+                <div>
+                  {filteredLicense.length === 0 ? (
+                    <div className="text-center py-12">
+                      <FileText className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                      <p className="text-gray-600">No license products found matching your criteria</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {filteredLicense.map(product => (
+                        <LicenseProductAccordion key={product._id} product={product} />
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
