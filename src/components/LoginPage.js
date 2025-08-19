@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { login } from "../services/auth";
 
 const LoginPage = () => {
   const [formData, setFormData] = useState({
@@ -17,15 +18,29 @@ const LoginPage = () => {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Here you would typically validate credentials with your backend
-    // For now, we'll just redirect to dashboard
-    console.log("Login attempt:", formData);
-    
-    // Redirect to dashboard
-    navigate("/dashboard");
+    setError("");
+    setLoading(true);
+    try {
+      const { email, password } = formData;
+      const result = await login(email, password);
+      if (result?.role) {
+        // route by role (basic example)
+        if (result.role === "admin") navigate("/admin", { replace: true });
+        else navigate("/dashboard", { replace: true });
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Invalid credentials";
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -76,12 +91,18 @@ const LoginPage = () => {
               </label>
             </div>
 
+            {/* Error */}
+            {error && (
+              <div className="text-red-600 text-sm">{error}</div>
+            )}
+
             {/* Sign In Button */}
             <button
               type="submit"
-              className="w-full bg-[#405952] text-white py-2 rounded-md text-sm font-medium hover:bg-[#30423f] transition"
+              disabled={loading}
+              className="w-full bg-[#405952] text-white py-2 rounded-md text-sm font-medium hover:bg-[#30423f] transition disabled:opacity-60"
             >
-              Sign In
+              {loading ? "Signing in..." : "Sign In"}
             </button>
           </form>
 

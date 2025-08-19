@@ -1,6 +1,7 @@
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { X, Home, Folder, MessageSquare, HelpCircle, LogOut } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { X, Home, Folder, MessageSquare, HelpCircle, ChevronDown } from 'lucide-react';
+import { logout } from '../services/auth';
 
 const Sidebar = ({ isOpen, toggleSidebar }) => {
   const location = useLocation();
@@ -19,6 +20,29 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
     if (isOpen) {
       toggleSidebar();
     }
+  };
+
+  const navigate = useNavigate();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const storedEmail = useMemo(() => localStorage.getItem('email') || '', []);
+  const storedRole = useMemo(() => localStorage.getItem('role') || '', []);
+  const storedName = useMemo(() => localStorage.getItem('name') || '', []);
+  const displayName = useMemo(() => storedName || storedRole || 'Account', [storedName, storedRole]);
+  const displayLetter = useMemo(() => (displayName?.[0] || 'A').toUpperCase(), [displayName]);
+
+  const handleToggleMenu = () => setIsMenuOpen((prev) => !prev);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      navigate('/login', { replace: true });
+    }
+  };
+
+  const handleResetPassword = () => {
+    navigate('/reset-password');
   };
 
   return (
@@ -83,21 +107,41 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
           </ul>
         </nav>
 
-        {/* Bottom Section: Account Info + Logout */}
+        {/* Bottom Section: Account Info + Dropdown */}
         <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-gray-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-[#405952] rounded-full flex items-center justify-center">
-                <span className="text-white font-bold text-sm">O</span>
+          <div>
+            <button
+              onClick={handleToggleMenu}
+              className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-[#405952] rounded-full flex items-center justify-center">
+                  <span className="text-white font-bold text-sm">{displayLetter}</span>
+                </div>
+                <div className="text-left">
+                  <p className="text-gray-900 font-medium text-sm leading-tight">{displayName}</p>
+                  <p className="text-gray-500 text-xs leading-tight">{storedEmail || 'user@example.com'}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-gray-900 font-medium text-sm">Optimus</p>
-                <p className="text-gray-500 text-xs">optimus@pwp.com</p>
+              <ChevronDown className={`w-5 h-5 text-gray-700 transition-transform duration-200 ${isMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            <div className={`overflow-hidden transition-all duration-200 ${isMenuOpen ? 'max-h-40 mt-2' : 'max-h-0'}`}>
+              <div className="bg-white border border-gray-200 rounded-md shadow-sm">
+                <div
+                  onClick={handleResetPassword}
+                  className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                >
+                  Reset Password
+                </div>
+                <div
+                  onClick={handleLogout}
+                  className="px-4 py-2 text-sm text-red-600 hover:bg-gray-100 cursor-pointer"
+                >
+                  Logout
+                </div>
               </div>
             </div>
-            <button className="p-2 rounded-md hover:bg-gray-100 transition-colors">
-              <LogOut className="w-5 h-5 text-gray-700" />
-            </button>
           </div>
         </div>
       </div>
