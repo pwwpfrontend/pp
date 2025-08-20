@@ -1,17 +1,46 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { X, Home, Folder, MessageSquare, HelpCircle, ChevronDown } from 'lucide-react';
+import { X, Home, Folder, MessageSquare, HelpCircle, ChevronDown, Settings, Users } from 'lucide-react';
 import { logout } from '../services/auth';
 
 const Sidebar = ({ isOpen, toggleSidebar }) => {
+  console.log('Sidebar rendering with props:', { isOpen, toggleSidebar: !!toggleSidebar });
   const location = useLocation();
+  
+  // Add a simple test to see if Sidebar is working
+  console.log('Sidebar location:', location.pathname);
 
-  const navigationItems = [
-    { name: 'Dashboard', path: '/dashboard', icon: Home },
-    { name: 'Products', path: '/products', icon: Folder },
-    { name: 'Quotes', path: '/quotes', icon: MessageSquare },
-    { name: 'Support', path: '/support', icon: HelpCircle },
-  ];
+  const storedEmail = useMemo(() => localStorage.getItem('email') || '', []);
+  const storedRole = useMemo(() => localStorage.getItem('role') || '', []);
+  const storedName = useMemo(() => localStorage.getItem('name') || '', []);
+  
+  const getNavigationItems = () => {
+    const role = storedRole;
+    
+    // Admin navigation - no Products or Support
+    if (role === 'admin') {
+      return [
+        { name: 'Dashboard', path: '/dashboard', icon: Home },
+        { name: 'Admin Products', path: '/admin/products', icon: Folder },
+        { name: 'Admin Pricing', path: '/admin/pricing', icon: Settings },
+        { name: 'Admin Users', path: '/admin/users', icon: Users },
+        { name: 'Manage Quotes', path: '/admin/quotes', icon: MessageSquare },
+      ];
+    }
+
+    // User navigation (Level1, Level2, Level3)
+    const baseItems = [
+      { name: 'Dashboard', path: '/dashboard', icon: Home },
+      { name: 'Products', path: '/products', icon: Folder },
+      { name: 'Request Quote', path: '/request-quote', icon: MessageSquare },
+      { name: 'Support', path: '/support', icon: HelpCircle },
+    ];
+
+    // All user levels (Level1, Level2, Level3) can see quotes
+    return baseItems;
+  };
+
+  const navigationItems = getNavigationItems();
 
   const isActive = (path) => location.pathname === path;
 
@@ -25,9 +54,6 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const storedEmail = useMemo(() => localStorage.getItem('email') || '', []);
-  const storedRole = useMemo(() => localStorage.getItem('role') || '', []);
-  const storedName = useMemo(() => localStorage.getItem('name') || '', []);
   const displayName = useMemo(() => storedName || storedRole || 'Account', [storedName, storedRole]);
   const displayLetter = useMemo(() => (displayName?.[0] || 'A').toUpperCase(), [displayName]);
 

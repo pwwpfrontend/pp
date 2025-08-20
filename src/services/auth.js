@@ -15,10 +15,12 @@ export const getRole = () => localStorage.getItem(ROLE_KEY);
 export const getEmail = () => localStorage.getItem(EMAIL_KEY);
 
 const setAuthData = ({ token, refreshToken, role, email }) => {
+  console.log('Setting auth data:', { token: !!token, refreshToken: !!refreshToken, role, email });
   if (token) localStorage.setItem(ACCESS_TOKEN_KEY, token);
   if (refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
   if (role) localStorage.setItem(ROLE_KEY, role);
   if (email) localStorage.setItem(EMAIL_KEY, email);
+  console.log('Auth data set in localStorage');
 };
 
 export const clearAuthData = () => {
@@ -116,10 +118,18 @@ api.interceptors.response.use(
 
 // API calls
 export async function login(email, password) {
-  const response = await api.post("/login", { email, password });
-  const { token, refreshToken, role } = response.data || {};
-  setAuthData({ token, refreshToken, role, email });
-  return { token, refreshToken, role };
+  console.log('Login attempt for:', email);
+  try {
+    const response = await api.post("/login", { email, password });
+    console.log('Login response:', response.data);
+    const { token, refreshToken, role } = response.data || {};
+    setAuthData({ token, refreshToken, role, email });
+    console.log('Auth data set:', { token: !!token, refreshToken: !!refreshToken, role, email });
+    return { token, refreshToken, role };
+  } catch (error) {
+    console.error('Login error:', error);
+    throw error;
+  }
 }
 
 export async function refreshToken() {
@@ -135,13 +145,20 @@ export async function refreshToken() {
 
 export async function logout() {
   try {
-    await api.post("/logout");
+    const token = getToken();
+    if (token) {
+      await api.post("/logout", {}, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+    }
   } finally {
     clearAuthData();
   }
 }
 
-export default {
+const authService = {
   api,
   login,
   refreshToken,
@@ -150,5 +167,7 @@ export default {
   getRole,
   getEmail
 };
+
+export default authService;
 
 

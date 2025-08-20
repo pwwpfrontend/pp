@@ -28,11 +28,19 @@ const LoginPage = () => {
     try {
       const { email, password } = formData;
       const result = await login(email, password);
+      console.log('Login result:', result);
+      
       if (result?.role) {
         // route by role (basic example)
-        if (result.role === "admin") navigate("/admin", { replace: true });
-        else navigate("/dashboard", { replace: true });
+        if (result.role === "admin") {
+          console.log('Navigating to admin products');
+          navigate("/admin/products", { replace: true });
+        } else {
+          console.log('Navigating to dashboard');
+          navigate("/dashboard", { replace: true });
+        }
       } else {
+        console.log('No role, navigating to dashboard');
         navigate("/dashboard", { replace: true });
       }
     } catch (err) {

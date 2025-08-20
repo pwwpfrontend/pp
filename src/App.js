@@ -4,39 +4,44 @@ import PartnerApplication from "./components/PartnerApplication";
 import LoginPage from "./components/LoginPage";
 import Dashboard from "./components/Dashboard";
 import Products from "./components/Products";
-import Quotes from "./components/Quotes";
+import RequestQuote from "./components/RequestQuote";
+import ManageQuotes from "./components/ManageQuotes";
 import Support from "./components/Support";
-import AddProduct from "./components/AddProduct";
-import EditProduct from "./components/EditProduct";
+import AdminProducts from "./components/AdminProducts";
+import AdminPricing from "./components/AdminPricing";
+import AdminUsers from "./components/AdminUsers";
 import PrivateRoute from "./components/PrivateRoute";
+import RoleGuard from "./components/RoleGuard";
 import Unauthorized from "./components/Unauthorized";
+import { ProductProvider } from "./context/ProductContext";
 
 function App() {
   return (
-    <Router>
-      <Routes>
+    <ProductProvider>
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <Routes>
         {/* Public routes */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/application" element={<PartnerApplication />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/unauthorized" element={<Unauthorized />} />
 
-        {/* Private routes */}
-        <Route element={<PrivateRoute roles={["admin", "level1", "level2", "level3"]} />}>
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/products" element={<Products />} />
-          <Route path="/quotes" element={<Quotes />} />
-          <Route path="/support" element={<Support />} />
-          <Route path="/add-product" element={<AddProduct />} />
-          <Route path="/edit-product/:id" element={<EditProduct />} />
-        </Route>
+        {/* Private routes - All authenticated users */}
+        <Route path="/dashboard" element={<PrivateRoute roles={["admin", "level1", "level2", "level3"]}><Dashboard /></PrivateRoute>} />
+        <Route path="/products" element={<PrivateRoute roles={["admin", "level1", "level2", "level3"]}><Products /></PrivateRoute>} />
+        <Route path="/support" element={<PrivateRoute roles={["admin", "level1", "level2", "level3"]}><Support /></PrivateRoute>} />
 
-        {/* Example admin-only route placeholder */}
-        <Route element={<PrivateRoute roles={["admin"]} />}>
-          <Route path="/admin" element={<Dashboard />} />
-        </Route>
-      </Routes>
-    </Router>
+        {/* Routes for all users (Level1, Level2, Level3) */}
+        <Route path="/request-quote" element={<PrivateRoute roles={["level1", "level2", "level3"]}><RequestQuote /></PrivateRoute>} />
+
+        {/* Admin-only routes */}
+        <Route path="/admin/products" element={<RoleGuard allowedRoles={["admin"]}><AdminProducts /></RoleGuard>} />
+        <Route path="/admin/pricing" element={<RoleGuard allowedRoles={["admin"]}><AdminPricing /></RoleGuard>} />
+        <Route path="/admin/users" element={<RoleGuard allowedRoles={["admin"]}><AdminUsers /></RoleGuard>} />
+        <Route path="/admin/quotes" element={<RoleGuard allowedRoles={["admin"]}><ManageQuotes /></RoleGuard>} />
+        </Routes>
+      </Router>
+    </ProductProvider>
   );
 }
 
