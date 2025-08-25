@@ -27,12 +27,12 @@ function App() {
         <Route path="/unauthorized" element={<Unauthorized />} />
 
         {/* Private routes - All authenticated users */}
-        <Route path="/dashboard" element={<PrivateRoute roles={["admin", "level1", "level2", "level3"]}><Dashboard /></PrivateRoute>} />
-        <Route path="/products" element={<PrivateRoute roles={["admin", "level1", "level2", "level3"]}><Products /></PrivateRoute>} />
-        <Route path="/support" element={<PrivateRoute roles={["admin", "level1", "level2", "level3"]}><Support /></PrivateRoute>} />
+        <Route path="/dashboard" element={<PrivateRoute roles={["admin", "professional", "expert", "master"]}><Dashboard /></PrivateRoute>} />
+        <Route path="/products" element={<PrivateRoute roles={["admin", "professional", "expert", "master"]}><Products /></PrivateRoute>} />
+        <Route path="/support" element={<PrivateRoute roles={["admin", "professional", "expert", "master"]}><Support /></PrivateRoute>} />
 
-        {/* Routes for all users (Level1, Level2, Level3) */}
-        <Route path="/request-quote" element={<PrivateRoute roles={["level1", "level2", "level3"]}><RequestQuote /></PrivateRoute>} />
+        {/* Routes for all non-admin users */}
+        <Route path="/request-quote" element={<PrivateRoute roles={["professional", "expert", "master"]}><RequestQuote /></PrivateRoute>} />
 
         {/* Admin-only routes */}
         <Route path="/admin/products" element={<RoleGuard allowedRoles={["admin"]}><AdminProducts /></RoleGuard>} />

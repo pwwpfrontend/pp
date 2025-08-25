@@ -247,3 +247,4 @@ const initializePricing = () => {
 // Initialize on module load
 initializePricing();
 
+

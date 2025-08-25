@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { api } from "../services/auth";
 
 const PartnerApplication = () => {
   const navigate = useNavigate();
@@ -12,7 +13,12 @@ const PartnerApplication = () => {
     email: "",
     phone: "",
     position: "",
+    password: ""
   });
+  const [certificateFile, setCertificateFile] = useState(null);
+  const [ndaAgreed, setNdaAgreed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -20,11 +26,46 @@ const PartnerApplication = () => {
 
   const handleNext = () => setStep(step + 1);
   const handlePrevious = () => setStep(step - 1);
-  const handleSubmit = (e) => {
+  const handleFileChange = (e) => {
+    const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+    setCertificateFile(file);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log("Form submitted:", formData);
-    alert("Application submitted successfully!");
-    navigate("/");
+    setSubmitError("");
+
+    if (!certificateFile) {
+      setSubmitError("Please upload your Business Registration Certificate.");
+      return;
+    }
+    if (!ndaAgreed) {
+      setSubmitError("Please agree to the NDA terms to continue.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const fd = new FormData();
+      fd.append("companyName", formData.companyName);
+      fd.append("companyAddress", formData.companyAddress);
+      fd.append("businessType", formData.businessType);
+      fd.append("bussinessType", formData.businessType); // compatibility with API key spelling
+      fd.append("contactPersonName", formData.contactName);
+      fd.append("phoneNumber", formData.phone);
+      fd.append("email", formData.email);
+      fd.append("password", formData.password);
+      fd.append("position", formData.position);
+      fd.append("certificate", certificateFile);
+
+      await api.post("/auth/register", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setStep(5); // success screen
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Failed to submit application";
+      setSubmitError(msg);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -103,7 +144,7 @@ const PartnerApplication = () => {
         {step === 2 && (
           <>
             <h2 className="text-center text-2xl font-bold mb-10">Contact Information</h2>
-            <form className="space-y-6" onSubmit={handleSubmit}>
+            <form className="space-y-6">
               {/* Contact Name */}
               <div>
                 <label className="block mb-2 text-sm font-medium">Contact Person's Name</label>
@@ -156,6 +197,19 @@ const PartnerApplication = () => {
                 />
               </div>
 
+              {/* Password */}
+              <div>
+                <label className="block mb-2 text-sm font-medium">Create Password</label>
+                <input
+                  type="password"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  placeholder="Set a password"
+                  className="w-full border rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#405952]"
+                />
+              </div>
+
               {/* Buttons */}
               <div className="flex justify-between mt-8">
                 <button
@@ -166,13 +220,72 @@ const PartnerApplication = () => {
                   Previous
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleNext}
                   className="px-6 py-2 bg-[#405952] text-white rounded-md text-sm font-medium hover:bg-[#30423f]"
                 >
-                  Submit
+                  Next
                 </button>
               </div>
             </form>
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <h2 className="text-center text-2xl font-bold mb-10">Business Registration Upload</h2>
+            <form className="space-y-6">
+              <div>
+                <label className="block mb-2 text-sm font-medium">Business Registration Certificate (Required)</label>
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  onChange={handleFileChange}
+                  className="w-full border rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#405952] bg-white"
+                />
+              </div>
+              <div className="flex justify-between mt-8">
+                <button type="button" onClick={handlePrevious} className="px-5 py-2 bg-gray-100 rounded-md text-sm font-medium hover:bg-gray-200">Previous</button>
+                <button type="button" onClick={handleNext} className="px-6 py-2 bg-[#405952] text-white rounded-md text-sm font-medium hover:bg-[#30423f]">Next</button>
+              </div>
+            </form>
+          </>
+        )}
+
+        {step === 4 && (
+          <>
+            <h2 className="text-center text-2xl font-bold mb-10">NDA Agreement</h2>
+            <form className="space-y-6" onSubmit={handleSubmit}>
+              <div className="flex items-start space-x-3">
+                <input id="nda" type="checkbox" checked={ndaAgreed} onChange={(e) => setNdaAgreed(e.target.checked)} className="mt-1 h-4 w-4" />
+                <label htmlFor="nda" className="text-sm text-gray-700">I agree to the terms of the Non-Disclosure Agreement. <a href="#" className="text-[#405952] underline">View full terms</a></label>
+              </div>
+
+              {submitError && <div className="text-red-600 text-sm">{submitError}</div>}
+
+              <div className="flex justify-between mt-8">
+                <button type="button" onClick={handlePrevious} className="px-5 py-2 bg-gray-100 rounded-md text-sm font-medium hover:bg-gray-200">Previous</button>
+                <button type="submit" disabled={submitting} className="px-6 py-2 bg-[#405952] text-white rounded-md text-sm font-medium hover:bg-[#30423f] disabled:opacity-60">{submitting ? "Submitting..." : "Submit Application"}</button>
+              </div>
+            </form>
+          </>
+        )}
+
+        {step === 5 && (
+          <>
+            <h2 className="text-center text-2xl font-bold mb-2">Application Status</h2>
+            <p className="text-center text-sm text-gray-500 mb-8">Under Review</p>
+            <div className="space-y-4 text-sm text-gray-700 max-w-xl mx-auto">
+              <p>Your application is being reviewed. You'll receive an email notification upon approval.</p>
+              <p className="font-medium">Typical review: 2-3 business days</p>
+              <div>
+                <div className="font-medium">Contact Support</div>
+                <p>For any questions, please reach out to our support team at <span className="font-mono">support@workplace.com</span></p>
+              </div>
+              <div className="flex justify-center pt-2">
+                <button onClick={() => navigate("/login")} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Return to Login</button>
+              </div>
+            </div>
           </>
         )}
       </section>

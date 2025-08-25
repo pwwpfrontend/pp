@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import { getAllUsers, approveUserRole, deleteUser } from '../services/auth';
 import { 
   Users, 
   Search, 
@@ -30,72 +31,31 @@ const AdminUsers = () => {
   const [roleFilter, setRoleFilter] = useState('all');
   const [selectedUser, setSelectedUser] = useState(null);
   const [showUserModal, setShowUserModal] = useState(false);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [roleToSet, setRoleToSet] = useState('professional');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
   };
 
-  // Mock user data - replace with actual API call
   useEffect(() => {
     const fetchUsers = async () => {
       setLoading(true);
       try {
-        // TODO: Replace with actual API call
-        const mockUsers = [
-          {
-            id: 1,
-            name: 'John Smith',
-            email: 'john.smith@company.com',
-            company: 'Tech Solutions Inc.',
-            phone: '+1 (555) 123-4567',
-            location: 'San Francisco, CA',
-            status: 'pending',
-            role: 'level1',
-            appliedDate: '2024-01-15',
-            notes: 'Experienced IT consultant looking to expand partnership'
-          },
-          {
-            id: 2,
-            name: 'Sarah Johnson',
-            email: 'sarah.j@expertconsulting.com',
-            company: 'Expert Consulting Group',
-            phone: '+1 (555) 987-6543',
-            location: 'New York, NY',
-            status: 'approved',
-            role: 'level2',
-            appliedDate: '2024-01-10',
-            approvedDate: '2024-01-12',
-            notes: 'Strong track record in enterprise solutions'
-          },
-          {
-            id: 3,
-            name: 'Michael Chen',
-            email: 'm.chen@mastertech.com',
-            company: 'Master Technology Partners',
-            phone: '+1 (555) 456-7890',
-            location: 'Austin, TX',
-            status: 'approved',
-            role: 'level3',
-            appliedDate: '2024-01-05',
-            approvedDate: '2024-01-08',
-            notes: 'Premier partner with excellent performance'
-          },
-          {
-            id: 4,
-            name: 'Emily Davis',
-            email: 'emily.davis@startup.io',
-            company: 'Startup Innovations',
-            phone: '+1 (555) 321-0987',
-            location: 'Seattle, WA',
-            status: 'rejected',
-            role: 'level1',
-            appliedDate: '2024-01-20',
-            rejectedDate: '2024-01-22',
-            notes: 'Company too small, insufficient resources'
-          }
-        ];
-        
-        setUsers(mockUsers);
+        const data = await getAllUsers();
+        const normalized = (data || []).map(u => ({
+          id: u._id,
+          name: u.contactPersonName || '-',
+          email: u.email,
+          company: u.companyName,
+          phone: u.phoneNumber,
+          location: u.companyAddress,
+          status: u.role === 'pending' ? 'pending' : 'approved',
+          role: u.role,
+          appliedDate: '',
+        }));
+        setUsers(normalized);
       } catch (error) {
         console.error('Error fetching users:', error);
         setError('Failed to fetch users. Please try again.');
@@ -103,7 +63,6 @@ const AdminUsers = () => {
         setLoading(false);
       }
     };
-
     fetchUsers();
   }, []);
 
@@ -150,13 +109,20 @@ const AdminUsers = () => {
     }
   };
 
-  // Handle role change
-  const handleRoleChange = async (userId, newRole) => {
+  // Handle open role modal
+  const handleOpenRoleModal = (user) => {
+    setSelectedUser(user);
+    setRoleToSet(['professional','expert','master'].includes(user.role) ? user.role : 'professional');
+    setShowRoleModal(true);
+  };
+
+  const submitRoleUpdate = async () => {
+    if (!selectedUser) return;
     try {
-      // TODO: Implement actual API call
-      setUsers(prev => prev.map(user => 
-        user.id === userId ? { ...user, role: newRole } : user
-      ));
+      await approveUserRole(selectedUser.id, roleToSet);
+      setUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, role: roleToSet, status: 'approved' } : u));
+      setShowRoleModal(false);
+      setSelectedUser(null);
     } catch (error) {
       console.error('Error updating user role:', error);
       alert('Failed to update user role. Please try again.');
@@ -191,12 +157,13 @@ const AdminUsers = () => {
   // Get role badge
   const getRoleBadge = (role) => {
     const roleConfig = {
-      level1: { color: 'bg-blue-100 text-blue-800', icon: Shield, name: 'Professional' },
-      level2: { color: 'bg-purple-100 text-purple-800', icon: User, name: 'Expert' },
-      level3: { color: 'bg-yellow-100 text-yellow-800', icon: Crown, name: 'Master' }
+      pending: { color: 'bg-yellow-100 text-yellow-800', icon: Clock, name: 'Pending' },
+      professional: { color: 'bg-green-100 text-green-800', icon: Shield, name: 'Professional' },
+      expert: { color: 'bg-blue-100 text-blue-800', icon: User, name: 'Expert' },
+      master: { color: 'bg-purple-100 text-purple-800', icon: Crown, name: 'Master' }
     };
     
-    const config = roleConfig[role] || roleConfig.level1;
+    const config = roleConfig[role] || roleConfig.pending;
     const IconComponent = config.icon;
     
     return (
@@ -366,9 +333,10 @@ const AdminUsers = () => {
                     className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent appearance-none"
                   >
                     <option value="all">All Roles</option>
-                    <option value="level1">Professional</option>
-                    <option value="level2">Expert</option>
-                    <option value="level3">Master</option>
+                    <option value="pending">Pending</option>
+                    <option value="professional">Professional</option>
+                    <option value="expert">Expert</option>
+                    <option value="master">Master</option>
                   </select>
                 </div>
               </div>
@@ -483,16 +451,23 @@ const AdminUsers = () => {
                               </>
                             )}
                             
-                            {user.status === 'approved' && (
-                              <select
-                                value={user.role}
-                                onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                                className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#405952]"
-                              >
-                                <option value="level1">Professional</option>
-                                <option value="level2">Expert</option>
-                                <option value="level3">Master</option>
-                              </select>
+                            {user.role !== 'admin' && (
+                              <>
+                                <button
+                                  onClick={() => handleOpenRoleModal(user)}
+                                  className="text-gray-700 hover:text-gray-900 p-1 rounded hover:bg-gray-50"
+                                  title="Update Role"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => { setSelectedUser(user); setShowDeleteModal(true); }}
+                                  className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                                  title="Delete"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </>
                             )}
                           </div>
                         </td>
@@ -508,6 +483,61 @@ const AdminUsers = () => {
 
       {/* User Details Modal */}
       {showUserModal && <UserDetailsModal />}
+
+      {/* Update Role Modal */}
+      {showRoleModal && selectedUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg w-full max-w-md">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold">Update Role</h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-700">Select a new role for <span className="font-medium">{selectedUser.name || selectedUser.email}</span>.</p>
+              <select
+                value={roleToSet}
+                onChange={(e) => setRoleToSet(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#405952]"
+              >
+                <option value="professional">Professional</option>
+                <option value="expert">Expert</option>
+                <option value="master">Master</option>
+              </select>
+            </div>
+            <div className="p-6 flex justify-end space-x-3 border-t">
+              <button onClick={() => setShowRoleModal(false)} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Cancel</button>
+              <button onClick={submitRoleUpdate} className="px-4 py-2 bg-[#405952] text-white rounded hover:bg-[#30423f]">Update</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && selectedUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg w-full max-w-md">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-red-700">Delete User</h3>
+            </div>
+            <div className="p-6 space-y-3">
+              <p>Are you sure you want to delete <span className="font-medium">{selectedUser.name || selectedUser.email}</span>? This action cannot be undone.</p>
+            </div>
+            <div className="p-6 flex justify-end space-x-3 border-t">
+              <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Cancel</button>
+              <button onClick={async () => {
+                try {
+                  await deleteUser(selectedUser.id);
+                  setUsers(prev => prev.filter(u => u.id !== selectedUser.id));
+                  setShowDeleteModal(false);
+                  setSelectedUser(null);
+                } catch (err) {
+                  console.error('Delete failed', err);
+                  alert('Failed to delete user.');
+                }
+              }} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
