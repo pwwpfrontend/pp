@@ -10,8 +10,11 @@ import {
   TrendingUp,
   Shield,
   Crown,
-  Building,
-  User
+  User,
+  Mail,
+  Phone,
+  Clock,
+  HelpCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import useAuth from '../hooks/useAuth';
@@ -36,14 +39,8 @@ const Dashboard = () => {
         icon: Package,
         href: '/products',
         color: 'bg-blue-500'
-      },
-      {
-        title: 'Support',
-        description: 'Get help and support',
-        icon: MessageSquare,
-        href: '/support',
-        color: 'bg-green-500'
       }
+      // Removed "Support" from here since we're embedding Contact Info directly
     ];
 
     if (currentRole === 'admin') {
@@ -101,7 +98,7 @@ const Dashboard = () => {
         name: 'Professional Partner',
         description: 'Access to products with professional discount rates',
         icon: Shield,
-        color: 'text-blue-600',
+        color: 'text-green-600',
         bgColor: 'bg-blue-50'
       },
       level2: {
@@ -176,83 +173,49 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Role-specific Information */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Recent Activity */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">Recent Activity</h3>
-              <div className="space-y-4">
-                <div className="flex items-center text-sm text-gray-600">
-                  <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
-                  <span>Successfully logged in</span>
+          {/* Contact Information */}
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
+              <HelpCircle className="w-6 h-6 mr-2 text-[#405952]" />
+              Contact Information
+            </h2>
+            
+            <div className="space-y-6">
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-blue-100 rounded-lg">
+                  <Mail className="w-6 h-6 text-green-600" />
                 </div>
-                <div className="flex items-center text-sm text-gray-600">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
-                  <span>Dashboard accessed</span>
+                <div>
+                  <h3 className="font-medium text-gray-900">Email Support</h3>
+                  <p className="text-gray-600">support@partnership-portal.com</p>
+                  <p className="text-sm text-gray-500">Response within 24 hours</p>
                 </div>
-                {currentRole === 'admin' && (
-                  <>
-                    <div className="flex items-center text-sm text-gray-600">
-                      <div className="w-2 h-2 bg-purple-500 rounded-full mr-3"></div>
-                      <span>Admin privileges active</span>
-                    </div>
-                    <div className="flex items-center text-sm text-gray-600">
-                      <div className="w-2 h-2 bg-orange-500 rounded-full mr-3"></div>
-                      <span>Product management available</span>
-                    </div>
-                  </>
-                )}
               </div>
-            </div>
 
-            {/* System Status */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">System Status</h3>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">Authentication</span>
-                  <span className="text-green-600 font-medium">Active</span>
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-green-100 rounded-lg">
+                  <Phone className="w-6 h-6 text-green-600" />
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">API Connection</span>
-                  <span className="text-green-600 font-medium">Connected</span>
+                <div>
+                  <h3 className="font-medium text-gray-900">Phone Support</h3>
+                  <p className="text-gray-600">+1 (555) 123-4567</p>
+                  <p className="text-sm text-gray-500">Mon-Fri, 9 AM - 6 PM EST</p>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">Role Access</span>
-                  <span className="text-green-600 font-medium">{roleInfo.name}</span>
+              </div>
+
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-purple-100 rounded-lg">
+                  <Clock className="w-6 h-6 text-purple-600" />
                 </div>
-                {currentRole === 'admin' && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Admin Panel</span>
-                    <span className="text-green-600 font-medium">Available</span>
-                  </div>
-                )}
+                <div>
+                  <h3 className="font-medium text-gray-900">Business Hours</h3>
+                  <p className="text-gray-600">Monday - Friday</p>
+                  <p className="text-sm text-gray-500">9:00 AM - 6:00 PM EST</p>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Help Section */}
-          <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <div className="flex items-start">
-              <MessageSquare className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
-              <div>
-                <h3 className="font-medium text-blue-900 mb-2">Need Help?</h3>
-                <p className="text-sm text-blue-800 mb-3">
-                  If you need assistance with the platform or have questions about your partnership, 
-                  our support team is here to help.
-                </p>
-                <Link
-                  to="/support"
-                  className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  Contact Support
-                  <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </Link>
-              </div>
-            </div>
-          </div>
         </div>
       </main>
     </div>

@@ -263,7 +263,7 @@ const ManageQuotes = () => {
                         <div className="flex space-x-2">
                           <button
                             onClick={() => handleViewDetails(quote)}
-                            className="text-blue-600 hover:text-blue-900 flex items-center"
+                            className="text-green-600 hover:text-blue-900 flex items-center"
                           >
                             <Eye className="w-4 h-4 mr-1" />
                             View

@@ -14,12 +14,14 @@ import {
   ChevronUp,
   Download,
   Plus,
-  X
+  X,
+  ShoppingCart
 } from 'lucide-react';
 import useAuth from '../hooks/useAuth';
+import { getToken } from '../services/auth';
 
 const Products = () => {
-  const { currentRole } = useAuth();
+  const { currentRole, isAuthenticated, loading: authLoading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +33,159 @@ const Products = () => {
   const [expandedProducts, setExpandedProducts] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [cartItems, setCartItems] = useState([]);
   const itemsPerPage = 10;
+
+  // Load cart from localStorage on component mount
+  useEffect(() => {
+    const savedCart = localStorage.getItem('quoteCart');
+    console.log('Loading cart from localStorage:', savedCart);
+    if (savedCart) {
+      try {
+        const parsedCart = JSON.parse(savedCart);
+        console.log('Parsed cart items:', parsedCart);
+        setCartItems(parsedCart);
+      } catch (error) {
+        console.error('Error parsing cart from localStorage:', error);
+        localStorage.removeItem('quoteCart');
+        setCartItems([]);
+      }
+    }
+  }, []);
+
+  // Save cart to localStorage whenever it changes
+  useEffect(() => {
+    console.log('Saving cart to localStorage:', cartItems);
+    localStorage.setItem('quoteCart', JSON.stringify(cartItems));
+  }, [cartItems]);
+
+  // Token refresh function
+  const refreshAccessToken = async () => {
+    try {
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (!refreshToken) {
+        throw new Error('No refresh token available');
+      }
+
+      console.log('Attempting to refresh token...');
+      
+      const response = await fetch('http://optimus-india-njs-01.netbird.cloud:3006/auth/refresh', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${refreshToken}`
+        },
+        credentials: 'omit',
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        throw new Error(`Token refresh failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.accessToken) {
+        localStorage.setItem('token', data.accessToken);
+        if (data.refreshToken) {
+          localStorage.setItem('refreshToken', data.refreshToken);
+        }
+        console.log('Token refreshed successfully');
+        return data.accessToken;
+      } else {
+        throw new Error('No access token in refresh response');
+      }
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      throw error;
+    }
+  };
+
+  // Enhanced fetch with token refresh
+  const fetchWithAuth = async (url, options = {}) => {
+    let token = getToken();
+    
+    if (!token) {
+      throw new Error('No access token available');
+    }
+
+    const fetchOptions = {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        ...options.headers
+      },
+      credentials: 'omit',
+      mode: 'cors'
+    };
+
+    try {
+      let response = await fetch(url, fetchOptions);
+      
+      // If token is invalid/expired, try to refresh
+      if (response.status === 401) {
+        console.log('Access token expired (401), attempting refresh...');
+        
+        try {
+          const newToken = await refreshAccessToken();
+          
+          // Retry the original request with new token
+          fetchOptions.headers['Authorization'] = `Bearer ${newToken}`;
+          response = await fetch(url, fetchOptions);
+          
+          if (!response.ok) {
+            throw new Error(`Request failed after token refresh: ${response.status}`);
+          }
+        } catch (refreshError) {
+          console.error('Token refresh failed:', refreshError);
+          localStorage.removeItem('token');
+          localStorage.removeItem('refreshToken');
+          window.location.href = '/login';
+          throw new Error('Authentication failed. Please login again.');
+        }
+      }
+      
+      // Handle 403 Forbidden specifically
+      if (response.status === 403) {
+        const errorText = await response.text().catch(() => 'Unable to read error response');
+        console.error('403 Forbidden response:', errorText);
+        
+        try {
+          const newToken = await refreshAccessToken();
+          
+          fetchOptions.headers['Authorization'] = `Bearer ${newToken}`;
+          const retryResponse = await fetch(url, fetchOptions);
+          
+          if (retryResponse.ok) {
+            console.log('403 resolved after token refresh');
+            return retryResponse;
+          } else {
+            throw new Error(`Still forbidden after refresh: ${retryResponse.status}`);
+          }
+        } catch (refreshError) {
+          console.error('Token refresh failed on 403:', refreshError);
+          localStorage.removeItem('token');
+          localStorage.removeItem('refreshToken');
+          throw new Error(`Access denied (403). Your session may have expired or you may not have permission. Please login again. Server response: ${errorText}`);
+        }
+      }
+
+      return response;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out. Please check your internet connection and try again.');
+      } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        throw new Error('Network error. Please check your internet connection and try again.');
+      }
+      throw error;
+    }
+  };
 
   // Corrected role mapping: level1 → expert, level2 → professional, level3 → beginner
   const getRoleMapping = (userRole) => {
@@ -62,39 +216,39 @@ const Products = () => {
     return msrp * (1 - discountRate);
   };
 
-  // Extract brand from various data fields
+  // Extract brand from various data fields - with null safety
   const extractBrand = (product) => {
-    // Check extraFields first
+    if (!product) return 'Other';
+    
     if (product.extraFields?.brand) {
       return product.extraFields.brand;
     }
     
-    // Check nested extraFields
     if (product.extraFields?.extraFields?.brand) {
       return product.extraFields.extraFields.brand;
     }
     
-    // Check product name for known brands
-    const productName = product.name.toLowerCase();
+    if (product.brand) {
+      return product.brand;
+    }
+    
+    const productName = (product.name || product.product_name || '').toLowerCase();
     if (productName.includes('humly')) return 'Humly';
     if (productName.includes('milesight')) return 'Milesight';
     if (productName.includes('supernet')) return 'SuperNet';
     if (productName.includes('acmecorp')) return 'AcmeCorp';
     
-    // Default fallback
     return 'Other';
   };
 
   // Handle product selection
   const handleProductClick = (product, event) => {
-    // Prevent triggering when clicking on buttons
     if (event.target.closest('button')) {
       return;
     }
     
     setSelectedProduct(selectedProduct?.id === product.id ? null : product);
     
-    // Auto-scroll to top when a product is selected
     if (selectedProduct?.id !== product.id) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -102,8 +256,6 @@ const Products = () => {
 
   // Handle download
   const handleDownload = (product) => {
-    // For demo purposes, create a simple text file with product info
-    // In real implementation, you would fetch the actual PDF/Excel from API
     const productData = `
 Product Details
 ==============
@@ -131,109 +283,177 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
     window.URL.revokeObjectURL(url);
   };
 
-  // Handle add to cart/list
-  const handleAddProduct = (product) => {
-    // Implement your add to cart/list logic here
-    console.log('Adding product:', product);
-    // For now, just show an alert
-    alert(`Added ${product.name} to your list!`);
+  // Fixed: Handle add to cart for quotes
+  const handleAddToCart = (product) => {
+    console.log('Adding product to cart:', product);
+    
+    // Create a clean product object for the cart
+    const cartProduct = {
+      id: product.id,
+      name: product.name,
+      sku: product.sku,
+      brand: product.brand,
+      category: product.category,
+      msrp: product.msrp,
+      netPrice: product.netPrice,
+      discount: product.discount,
+      description: product.description,
+      picture: product.picture,
+      extraFields: product.extraFields,
+      quantity: 1
+    };
+
+    const existingItem = cartItems.find(item => item.id === product.id);
+    
+    if (existingItem) {
+      // Update quantity if item already exists
+      const updatedCart = cartItems.map(item => 
+        item.id === product.id 
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      );
+      console.log('Updated cart with increased quantity:', updatedCart);
+      setCartItems(updatedCart);
+    } else {
+      // Add new item to cart
+      const newCart = [...cartItems, cartProduct];
+      console.log('Added new item to cart:', newCart);
+      setCartItems(newCart);
+    }
+    
+    // Show success message
+    alert(`${product.name} added to quote cart!`);
   };
 
-  // Fetch products from API
+  // Get cart items count
+  const getCartItemsCount = () => {
+    return cartItems.reduce((total, item) => total + item.quantity, 0);
+  };
+
+  // Fetch products from API with enhanced error handling and token refresh
   useEffect(() => {
     const fetchProducts = async () => {
       try {
         setLoading(true);
-        
-        // First, login to get a fresh token
-        const loginResponse = await fetch('http://optimus-india-njs-01.netbird.cloud:3006/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            email: "level3@example.com",
-            password: "level3pass"
-          })
-        });
+        setError(null);
 
-        if (!loginResponse.ok) {
-          throw new Error(`Login failed! status: ${loginResponse.status}`);
+        if (!isAuthenticated) {
+          throw new Error('Please login to view products.');
         }
 
-        const loginData = await loginResponse.json();
-        
-        if (!loginData.token) {
-          throw new Error('No token received from login');
-        }
+        console.log('Current role:', currentRole);
+        console.log('Is authenticated:', isAuthenticated);
 
-        const token = loginData.token;
-        console.log('Login successful, token received');
+        const token = getToken();
+        console.log('Token exists:', !!token);
 
-        // Now fetch products with the fresh token
-        const response = await fetch('http://optimus-india-njs-01.netbird.cloud:3006/products', {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+        console.log('Fetching products...');
+
+        const response = await fetchWithAuth(
+          'http://optimus-india-njs-01.netbird.cloud:3006/products',
+          {
+            method: 'GET',
+            signal: AbortSignal.timeout(30000)
           }
-        });
+        );
+
+        console.log('Response status:', response.status);
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const errorText = await response.text().catch(() => 'Unable to read error response');
+          console.error('Error response body:', errorText);
+          
+          if (response.status === 403) {
+            throw new Error(`Access denied. Server response: ${errorText || 'You do not have permission to view products.'}`);
+          } else if (response.status === 404) {
+            throw new Error('Products API endpoint not found. Please contact support.');
+          } else if (response.status === 429) {
+            throw new Error('Too many requests. Please wait a moment and try again.');
+          } else if (response.status >= 500) {
+            throw new Error(`Server error (${response.status}). Please try again later or contact support.`);
+          } else {
+            throw new Error(`Failed to fetch products. Status: ${response.status}. ${errorText || ''}`);
+          }
+        }
+
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error(`Invalid response format. Expected JSON, got: ${contentType}`);
         }
 
         const data = await response.json();
-        console.log('Products fetched successfully:', data);
+        console.log('Products fetched successfully:', {
+          role: data.role,
+          productsCount: data.products?.length || 0,
+          firstProduct: data.products?.[0]?.product_name || data.products?.[0]?.name || 'N/A',
+          sampleProduct: data.products?.[0]
+        });
+
+        if (!data || !Array.isArray(data.products)) {
+          console.error('Invalid response structure:', data);
+          throw new Error('Invalid response format from server. Expected products array.');
+        }
+
+        if (data.products.length === 0) {
+          console.log('No products found in response');
+          setProducts([]);
+          setError(null);
+          return;
+        }
         
         // Process products to flatten models into individual products
         const processedProducts = [];
         
         data.products.forEach(product => {
+          if (!product) return;
+          
           const brand = extractBrand(product);
           const discountRate = getDiscountRate(currentRole);
-
+          const productName = product.name || product.product_name || 'Unnamed Product';
+          
           if (product.models && product.models.length > 0) {
-            // Product has models - create separate entries for each model
             product.models.forEach((model, index) => {
-              const modelPrice = model.msrp || model.price || product.price || 0;
+              if (!model) return;
+              
+              const modelPrice = model.msrp || model.price || product.msrp || product.price || 0;
+              const modelName = model.name || `Model ${index + 1}`;
+              
               processedProducts.push({
-                id: `${product._id}-model-${index}`,
-                parentId: product._id,
-                name: `${product.name} - ${model.name}`,
-                description: model.description || product.description || '', // Use model description first, then parent
-                sku: model.sku || `${product._id}-${index}`,
+                id: `${product._id || product.id || `product-${index}`}-model-${index}`,
+                parentId: product._id || product.id,
+                name: `${productName} - ${modelName}`,
+                description: model.description || product.description || '',
+                sku: model.sku || product.sku || `${product._id || 'unknown'}-${index}`,
                 brand: brand,
                 category: product.category || 'Uncategorized',
                 msrp: modelPrice,
                 netPrice: calculateNetPrice(modelPrice, currentRole),
                 discount: discountRate * 100,
                 features: product.features || [],
-                picture: model.picture || product.picture || '',
+                picture: model.picture || product.picture || product.product_image || '',
                 duration: model.duration || '',
                 isModel: true,
-                modelName: model.name,
+                modelName: modelName,
                 parentProduct: product,
                 parentDescription: product.description || '',
                 extraFields: { ...product.extraFields, ...model.extraFields }
               });
             });
           } else {
-            // Product without models
             const productPrice = product.msrp || product.price || 0;
             processedProducts.push({
-              id: product._id,
+              id: product._id || product.id || `product-${Math.random()}`,
               parentId: null,
-              name: product.name,
+              name: productName,
               description: product.description || '',
-              sku: product.sku || product._id,
+              sku: product.sku || product['sku/model'] || product._id || 'unknown',
               brand: brand,
               category: product.category || 'Uncategorized',
               msrp: productPrice,
               netPrice: calculateNetPrice(productPrice, currentRole),
               discount: discountRate * 100,
               features: product.features || [],
-              picture: product.picture || '',
+              picture: product.picture || product.product_image || '',
               duration: '',
               isModel: false,
               parentProduct: null,
@@ -244,16 +464,27 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
 
         setProducts(processedProducts);
         setError(null);
+        console.log('Processed products count:', processedProducts.length);
       } catch (err) {
         console.error('Error fetching products:', err);
         setError(err.message);
+        setProducts([]);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProducts();
-  }, [currentRole]);
+    if (!authLoading && isAuthenticated && currentRole) {
+      console.log('Starting product fetch...');
+      fetchProducts();
+    } else if (!authLoading && !isAuthenticated) {
+      console.log('User not authenticated');
+      setError('Please login to view products.');
+      setLoading(false);
+    } else {
+      console.log('Waiting for auth...', { authLoading, isAuthenticated, currentRole });
+    }
+  }, [currentRole, isAuthenticated, authLoading]);
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -271,37 +502,42 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
     });
   };
 
-  // Filter and search products
+  // Filter and search products - with null safety
   const filteredProducts = React.useMemo(() => {
     let filtered = products.filter(product => {
+      const productName = (product.name || '').toLowerCase();
+      const productDescription = (product.description || '').toLowerCase();
+      const productBrand = (product.brand || '').toLowerCase();
+      const productSku = (product.sku || '').toLowerCase();
+      const searchTermLower = (searchTerm || '').toLowerCase();
+      
       const matchesSearch = 
-        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        product.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        product.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        product.sku.toLowerCase().includes(searchTerm.toLowerCase());
+        productName.includes(searchTermLower) ||
+        productDescription.includes(searchTermLower) ||
+        productBrand.includes(searchTermLower) ||
+        productSku.includes(searchTermLower);
       
       const matchesCategory = categoryFilter === 'all' || 
-        product.category.toLowerCase() === categoryFilter.toLowerCase();
+        (product.category || '').toLowerCase() === categoryFilter.toLowerCase();
       
       const matchesBrand = brandFilter === 'all' || 
-        product.brand.toLowerCase() === brandFilter.toLowerCase();
+        (product.brand || '').toLowerCase() === brandFilter.toLowerCase();
       
       return matchesSearch && matchesCategory && matchesBrand;
     });
 
-    // Sort products
     filtered.sort((a, b) => {
       switch (sortBy) {
         case 'name':
-          return a.name.localeCompare(b.name);
+          return (a.name || '').localeCompare(b.name || '');
         case 'price':
-          return a.msrp - b.msrp;
+          return (a.msrp || 0) - (b.msrp || 0);
         case 'brand':
-          return a.brand.localeCompare(b.brand);
+          return (a.brand || '').localeCompare(b.brand || '');
         case 'category':
-          return a.category.localeCompare(b.category);
+          return (a.category || '').localeCompare(b.category || '');
         case 'sku':
-          return a.sku.localeCompare(b.sku);
+          return (a.sku || '').localeCompare(b.sku || '');
         default:
           return 0;
       }
@@ -312,12 +548,12 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
 
   // Get unique categories and brands for filters
   const categories = React.useMemo(() => {
-    const cats = [...new Set(products.map(p => p.category))];
+    const cats = [...new Set(products.map(p => p.category || 'Uncategorized').filter(Boolean))];
     return ['all', ...cats];
   }, [products]);
 
   const brands = React.useMemo(() => {
-    const brandList = [...new Set(products.map(p => p.brand))];
+    const brandList = [...new Set(products.map(p => p.brand || 'Other').filter(Boolean))];
     return ['all', ...brandList];
   }, [products]);
 
@@ -363,13 +599,25 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
             <div className="text-center py-12">
               <AlertTriangle className="w-16 h-16 mx-auto mb-4 text-red-500" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Error Loading Products</h3>
-              <p className="text-gray-600">{error}</p>
-              <button 
-                onClick={() => window.location.reload()} 
-                className="mt-4 px-4 py-2 bg-[#405952] text-white rounded-lg hover:bg-[#2d3f38]"
-              >
-                Retry
-              </button>
+              <p className="text-gray-600 mb-4 max-w-2xl mx-auto">{error}</p>
+              <div className="space-x-4">
+                <button 
+                  onClick={() => window.location.reload()} 
+                  className="px-4 py-2 bg-[#405952] text-white rounded-lg hover:bg-[#2d3f38]"
+                >
+                  Retry
+                </button>
+                <button 
+                  onClick={() => {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('refreshToken');
+                    window.location.href = '/login';
+                  }} 
+                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                >
+                  Re-login
+                </button>
+              </div>
             </div>
           </div>
         </main>
@@ -383,16 +631,36 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
       <Header toggleSidebar={toggleSidebar} />
 
       <main className="pt-16">
-        {/* Page Header - Always at top */}
+        {/* Page Header */}
         <div className="bg-gray-100 p-6 pb-3">
-          <h1 className="text-3xl font-bold text-gray-900">Products</h1>
-          <div className="mt-2 text-sm text-[#405952]">
-            Your Level: <span className="font-semibold">{getRoleDisplayName(currentRole)}</span> 
-            <span className="ml-2 text-gray-500">({getDiscountRate(currentRole) * 100}% discount)</span>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Products</h1>
+              <div className="mt-2 text-sm text-[#405952]">
+                Your Level: <span className="font-semibold">{getRoleDisplayName(currentRole)}</span> 
+                <span className="ml-2 text-gray-500">({getDiscountRate(currentRole) * 100}% discount)</span>
+              </div>
+            </div>
+            
+            {/* Quote Cart Button */}
+            {getCartItemsCount() > 0 && (
+              <div className="relative">
+                <a
+                  href="/request-quote"
+                  className="bg-[#405952] text-white px-4 py-2 rounded-lg hover:bg-[#2d3f38] transition-colors flex items-center gap-2"
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  Quote Cart
+                  <span className="bg-white text-[#405952] rounded-full px-2 py-1 text-xs font-bold">
+                    {getCartItemsCount()}
+                  </span>
+                </a>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Product Detail Modal - Positioned below header and made sticky */}
+        {/* Product Detail Modal */}
         {selectedProduct && (
           <div className="sticky top-16 z-30 bg-white shadow-lg border-b border-gray-200">
             <div className="max-w-7xl mx-auto p-6">
@@ -431,13 +699,11 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
 
                 {/* Center - Product Details */}
                 <div className="col-span-12 lg:col-span-6">
-                  {/* SKU, Category, Brand */}
                   <div className="mb-3 text-sm text-gray-600 space-y-1">
                     <div>SKU: <span className="text-gray-900 font-medium">{selectedProduct.sku}</span></div>
                     <div>Category: <span className="text-gray-900 font-medium">{selectedProduct.category}</span> | Brand: <span className="text-gray-900 font-medium">{selectedProduct.brand}</span></div>
                   </div>
 
-                  {/* Description */}
                   {selectedProduct.description && (
                     <div className="mb-3">
                       <h3 className="text-sm font-semibold mb-1">Description</h3>
@@ -445,7 +711,6 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
                     </div>
                   )}
 
-                  {/* Additional Information - Two Columns */}
                   {Object.keys(selectedProduct.extraFields).length > 0 && (
                     <div className="mb-3">
                       <h3 className="text-sm font-semibold mb-2">Additional Information</h3>
@@ -474,7 +739,6 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
 
                 {/* Right Side - Pricing and Actions */}
                 <div className="col-span-12 lg:col-span-3">
-                  {/* Pricing Breakdown */}
                   <div className="bg-gray-50 p-4 rounded-lg mb-4">
                     <h3 className="text-sm font-semibold mb-3">Pricing Breakdown</h3>
                     <div className="space-y-2">
@@ -496,14 +760,22 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
                     </div>
                   </div>
 
-                  {/* Action Button */}
-                  <button
-                    onClick={() => handleDownload(selectedProduct)}
-                    className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download Datasheet
-                  </button>
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => handleAddToCart(selectedProduct)}
+                      className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-[#405952] text-white rounded text-sm hover:bg-[#2d3f38] transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add to Quote
+                    </button>
+                    <button
+                      onClick={() => handleDownload(selectedProduct)}
+                      className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download Datasheet
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -610,6 +882,7 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
                   {paginatedProducts.map((product) => {
                     const isExpanded = expandedProducts.has(product.id);
                     const isSelected = selectedProduct?.id === product.id;
+                    const isInCart = cartItems.some(item => item.id === product.id);
                     
                     return (
                       <React.Fragment key={product.id}>
@@ -644,6 +917,11 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
                                   {product.isModel && (
                                     <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                                       Model
+                                    </span>
+                                  )}
+                                  {isInCart && (
+                                    <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                      In Quote
                                     </span>
                                   )}
                                 </div>
@@ -688,13 +966,17 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleAddProduct(product);
+                                  handleAddToCart(product);
                                 }}
-                                className="flex items-center gap-1 px-3 py-1 text-xs bg-[#405952] hover:bg-[#2d3f38] text-white rounded transition-colors"
-                                title="Add to Cart"
+                                className={`flex items-center gap-1 px-3 py-1 text-xs rounded transition-colors ${
+                                  isInCart 
+                                    ? 'bg-green-100 text-green-800 hover:bg-green-200' 
+                                    : 'bg-[#405952] hover:bg-[#2d3f38] text-white'
+                                }`}
+                                title={isInCart ? 'Add More' : 'Add to Quote'}
                               >
                                 <Plus className="w-3 h-3" />
-                                Add
+                                {isInCart ? 'Add More' : 'Add'}
                               </button>
                             </div>
                           </td>

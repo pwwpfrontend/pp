@@ -120,9 +120,10 @@ api.interceptors.response.use(
 export async function login(email, password) {
   console.log('Login attempt for:', email);
   try {
-    const response = await api.post("/login", { email, password });
+    const response = await api.post("/auth/login", { email, password });
     console.log('Login response:', response.data);
-    const { token, refreshToken, role } = response.data || {};
+    const { accessToken, refreshToken, role } = response.data || {};
+    const token = accessToken || response.data?.token; // support either field name
     setAuthData({ token, refreshToken, role, email });
     console.log('Auth data set:', { token: !!token, refreshToken: !!refreshToken, role, email });
     return { token, refreshToken, role };
@@ -137,8 +138,9 @@ export async function refreshToken() {
   if (!storedRefreshToken) {
     throw new Error("No refresh token available");
   }
-  const response = await api.post("/refresh", { refreshToken: storedRefreshToken });
-  const { token, refreshToken: newRefreshToken, role } = response.data || {};
+  const response = await api.post("/auth/refresh", { refreshToken: storedRefreshToken });
+  const { accessToken, refreshToken: newRefreshToken, role } = response.data || {};
+  const token = accessToken || response.data?.token;
   setAuthData({ token, refreshToken: newRefreshToken, role });
   return { token, refreshToken: newRefreshToken, role };
 }
@@ -147,7 +149,7 @@ export async function logout() {
   try {
     const token = getToken();
     if (token) {
-      await api.post("/logout", {}, {
+      await api.post("/auth/logout", {}, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -158,16 +160,33 @@ export async function logout() {
   }
 }
 
+// Admin APIs
+export async function getAllUsers() {
+  const response = await api.get("/admin/users");
+  return response.data;
+}
+
+export async function approveUserRole(userId, newRole) {
+  const response = await api.put(`/auth/approve/${userId}`, { role: newRole });
+  return response.data;
+}
+
+export async function deleteUser(userId) {
+  const response = await api.delete(`/admin/users/${userId}`);
+  return response.data;
+}
+
 const authService = {
   api,
   login,
   refreshToken,
   logout,
+  getAllUsers,
+  approveUserRole,
+  deleteUser,
   getToken,
   getRole,
   getEmail
 };
 
 export default authService;
-
-

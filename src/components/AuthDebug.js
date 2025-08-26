@@ -134,10 +134,10 @@ const AuthDebug = () => {
           <div className="mt-6">
             <h2 className="text-xl font-semibold text-gray-800 mb-4">Navigation</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <a href="/admin/products" className="text-blue-600 hover:text-blue-800">Admin Products</a>
-              <a href="/admin/simple" className="text-blue-600 hover:text-blue-800">Simple Admin</a>
-              <a href="/dashboard" className="text-blue-600 hover:text-blue-800">Dashboard</a>
-              <a href="/auth-test" className="text-blue-600 hover:text-blue-800">Auth Test</a>
+              <a href="/admin/products" className="bg-green-600 hover:text-blue-800">Admin Products</a>
+              <a href="/admin/simple" className="bg-green-600 hover:text-blue-800">Simple Admin</a>
+              <a href="/dashboard" className="bg-green-600 hover:text-blue-800">Dashboard</a>
+              <a href="/auth-test" className="bg-green-600 hover:text-blue-800">Auth Test</a>
             </div>
           </div>
         </div>

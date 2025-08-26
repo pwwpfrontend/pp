@@ -250,7 +250,7 @@ const AdminPricing = () => {
                   <button
                     onClick={handleAddBrand}
                     disabled={!newBrand.trim()}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+                    className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
                     Add
                   </button>
@@ -336,7 +336,7 @@ const AdminPricing = () => {
           {/* Pricing Information */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
             <div className="flex items-start">
-              <AlertTriangle className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
+              <AlertTriangle className="w-5 h-5 bg-green-600 mr-3 mt-0.5 flex-shrink-0" />
               <div>
                 <h3 className="font-medium text-blue-900 mb-2">How Pricing Works</h3>
                 <ul className="text-sm text-blue-800 space-y-1">

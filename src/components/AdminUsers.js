@@ -53,7 +53,7 @@ const AdminUsers = () => {
           location: u.companyAddress,
           status: u.role === 'pending' ? 'pending' : 'approved',
           role: u.role,
-          appliedDate: '',
+          // appliedDate: '',
         }));
         setUsers(normalized);
       } catch (error) {
@@ -239,10 +239,10 @@ const AdminUsers = () => {
                   <label className="text-sm text-gray-500">Current Role</label>
                   <div className="mt-1">{getRoleBadge(selectedUser.role)}</div>
                 </div>
-                <div>
+                {/* <div>
                   <label className="text-sm text-gray-500">Applied Date</label>
                   <p className="text-gray-900">{selectedUser.appliedDate}</p>
-                </div>
+                </div> */}
                 {selectedUser.approvedDate && (
                   <div>
                     <label className="text-sm text-gray-500">Approved Date</label>
@@ -419,14 +419,14 @@ const AdminUsers = () => {
                         <td className="px-6 py-4 whitespace-nowrap">
                           {getRoleBadge(user.role)}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {/* <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {user.appliedDate}
-                        </td>
+                        </td> */}
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="flex space-x-2">
                             <button
                               onClick={() => handleViewUser(user)}
-                              className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                              className="text-green-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
                               title="View Details"
                             >
                               <Eye className="w-4 h-4" />

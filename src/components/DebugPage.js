@@ -107,7 +107,7 @@ const DebugPage = () => {
               </button>
               <button
                 onClick={() => window.location.reload()}
-                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors"
               >
                 Reload Page
               </button>
@@ -123,10 +123,10 @@ const DebugPage = () => {
           <div className="mt-6">
             <h2 className="text-xl font-semibold text-gray-800 mb-4">Navigation</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Link to="/" className="text-blue-600 hover:text-blue-800">Home</Link>
-              <Link to="/login" className="text-blue-600 hover:text-blue-800">Login</Link>
-              <Link to="/dashboard" className="text-blue-600 hover:text-blue-800">Dashboard</Link>
-              <Link to="/admin/products" className="text-blue-600 hover:text-blue-800">Admin Products</Link>
+              <Link to="/" className="bg-green-600 hover:text-green-800">Home</Link>
+              <Link to="/login" className="bg-green-600 hover:text-green-800">Login</Link>
+              <Link to="/dashboard" className="bg-green-600 hover:text-green-800">Dashboard</Link>
+              <Link to="/admin/products" className="bg-green-600 hover:text-green-800">Admin Products</Link>
             </div>
           </div>
         </div>

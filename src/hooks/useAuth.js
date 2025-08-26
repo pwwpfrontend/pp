@@ -29,5 +29,3 @@ export default function useAuth(requiredRoles = []) {
 
   return { isAuthenticated, isAuthorized, currentRole, loading };
 }
-
-
