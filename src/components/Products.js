@@ -34,16 +34,15 @@ const Products = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [cartItems, setCartItems] = useState([]);
+  const [addToCartLoading, setAddToCartLoading] = useState(null);
   const itemsPerPage = 10;
 
-  // Load cart from localStorage on component mount
+  // Load cart items from localStorage on component mount
   useEffect(() => {
     const savedCart = localStorage.getItem('quoteCart');
-    console.log('Loading cart from localStorage:', savedCart);
     if (savedCart) {
       try {
         const parsedCart = JSON.parse(savedCart);
-        console.log('Parsed cart items:', parsedCart);
         setCartItems(parsedCart);
       } catch (error) {
         console.error('Error parsing cart from localStorage:', error);
@@ -52,12 +51,6 @@ const Products = () => {
       }
     }
   }, []);
-
-  // Save cart to localStorage whenever it changes
-  useEffect(() => {
-    console.log('Saving cart to localStorage:', cartItems);
-    localStorage.setItem('quoteCart', JSON.stringify(cartItems));
-  }, [cartItems]);
 
   // Token refresh function
   const refreshAccessToken = async () => {
@@ -283,51 +276,66 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
     window.URL.revokeObjectURL(url);
   };
 
-  // Fixed: Handle add to cart for quotes
-  const handleAddToCart = (product) => {
-    console.log('Adding product to cart:', product);
+  // Handle add to cart - store in localStorage only
+  const handleAddToCart = async (product) => {
+    setAddToCartLoading(product.id);
     
-    // Create a clean product object for the cart
-    const cartProduct = {
-      id: product.id,
-      name: product.name,
-      sku: product.sku,
-      brand: product.brand,
-      category: product.category,
-      msrp: product.msrp,
-      netPrice: product.netPrice,
-      discount: product.discount,
-      description: product.description,
-      picture: product.picture,
-      extraFields: product.extraFields,
-      quantity: 1
-    };
+    try {
+      const cartProduct = {
+        productId: product.id,
+        id: product.id, // Keep both for compatibility
+        name: product.name,
+        sku: product.sku,
+        brand: product.brand,
+        category: product.category,
+        msrp: product.msrp,
+        netPrice: product.netPrice,
+        discount: product.discount,
+        description: product.description,
+        picture: product.picture,
+        extraFields: product.extraFields,
+        quantity: 1,
+        totalPrice: product.netPrice
+      };
 
-    const existingItem = cartItems.find(item => item.id === product.id);
-    
-    if (existingItem) {
-      // Update quantity if item already exists
-      const updatedCart = cartItems.map(item => 
-        item.id === product.id 
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
+      const existingItemIndex = cartItems.findIndex(item => 
+        item.productId === product.id || item.id === product.id
       );
-      console.log('Updated cart with increased quantity:', updatedCart);
+      
+      let updatedCart;
+      if (existingItemIndex !== -1) {
+        // Update existing item quantity
+        updatedCart = cartItems.map((item, index) => 
+          index === existingItemIndex
+            ? { 
+                ...item, 
+                quantity: item.quantity + 1,
+                totalPrice: (item.quantity + 1) * item.netPrice
+              }
+            : item
+        );
+      } else {
+        // Add new item to cart
+        updatedCart = [...cartItems, cartProduct];
+      }
+
       setCartItems(updatedCart);
-    } else {
-      // Add new item to cart
-      const newCart = [...cartItems, cartProduct];
-      console.log('Added new item to cart:', newCart);
-      setCartItems(newCart);
+      localStorage.setItem('quoteCart', JSON.stringify(updatedCart));
+      
+      // Show success message
+      alert(`${product.name} added to quote cart!`);
+      
+    } catch (error) {
+      console.error('Error adding to cart:', error);
+      alert('Failed to add product to cart. Please try again.');
+    } finally {
+      setAddToCartLoading(null);
     }
-    
-    // Show success message
-    alert(`${product.name} added to quote cart!`);
   };
 
   // Get cart items count
   const getCartItemsCount = () => {
-    return cartItems.reduce((total, item) => total + item.quantity, 0);
+    return cartItems.reduce((total, item) => total + (item.quantity || 1), 0);
   };
 
   // Fetch products from API with enhanced error handling and token refresh
@@ -573,6 +581,15 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
     return displayNames[actualLevel] || actualLevel;
   };
 
+  // Handle Quote Cart button click
+  const handleQuoteCartClick = () => {
+    if (!isAuthenticated) {
+      alert('Please login to access your quote cart.');
+      return;
+    }
+    window.location.href = '/request-quote';
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100">
@@ -645,8 +662,8 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
             {/* Quote Cart Button */}
             {getCartItemsCount() > 0 && (
               <div className="relative">
-                <a
-                  href="/request-quote"
+                <button
+                  onClick={handleQuoteCartClick}
                   className="bg-[#405952] text-white px-4 py-2 rounded-lg hover:bg-[#2d3f38] transition-colors flex items-center gap-2"
                 >
                   <ShoppingCart className="w-4 h-4" />
@@ -654,7 +671,7 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
                   <span className="bg-white text-[#405952] rounded-full px-2 py-1 text-xs font-bold">
                     {getCartItemsCount()}
                   </span>
-                </a>
+                </button>
               </div>
             )}
           </div>
@@ -763,10 +780,20 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
                   <div className="space-y-2">
                     <button
                       onClick={() => handleAddToCart(selectedProduct)}
-                      className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-[#405952] text-white rounded text-sm hover:bg-[#2d3f38] transition-colors"
+                      disabled={addToCartLoading === selectedProduct.id}
+                      className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-[#405952] text-white rounded text-sm hover:bg-[#2d3f38] transition-colors disabled:opacity-50"
                     >
-                      <Plus className="w-4 h-4" />
-                      Add to Quote
+                      {addToCartLoading === selectedProduct.id ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          Adding...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-4 h-4" />
+                          Add to Quote
+                        </>
+                      )}
                     </button>
                     <button
                       onClick={() => handleDownload(selectedProduct)}
@@ -882,7 +909,7 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
                   {paginatedProducts.map((product) => {
                     const isExpanded = expandedProducts.has(product.id);
                     const isSelected = selectedProduct?.id === product.id;
-                    const isInCart = cartItems.some(item => item.id === product.id);
+                    const isInCart = cartItems.some(item => item.productId === product.id || item.id === product.id);
                     
                     return (
                       <React.Fragment key={product.id}>
@@ -968,14 +995,19 @@ ${Object.entries(product.extraFields).map(([key, value]) => `${key}: ${value}`).
                                   e.stopPropagation();
                                   handleAddToCart(product);
                                 }}
-                                className={`flex items-center gap-1 px-3 py-1 text-xs rounded transition-colors ${
+                                disabled={addToCartLoading === product.id}
+                                className={`flex items-center gap-1 px-3 py-1 text-xs rounded transition-colors disabled:opacity-50 ${
                                   isInCart 
                                     ? 'bg-green-100 text-green-800 hover:bg-green-200' 
                                     : 'bg-[#405952] hover:bg-[#2d3f38] text-white'
                                 }`}
                                 title={isInCart ? 'Add More' : 'Add to Quote'}
                               >
-                                <Plus className="w-3 h-3" />
+                                {addToCartLoading === product.id ? (
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
+                                ) : (
+                                  <Plus className="w-3 h-3" />
+                                )}
                                 {isInCart ? 'Add More' : 'Add'}
                               </button>
                             </div>

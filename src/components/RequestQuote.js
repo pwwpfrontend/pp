@@ -1,44 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import { FileText, Search, Trash2, Send, ShoppingCart, AlertTriangle } from 'lucide-react';
+import { FileText, Search, Trash2, Send, ShoppingCart, AlertTriangle, Package } from 'lucide-react';
 import useAuth from '../hooks/useAuth';
 import { getToken } from '../services/auth';
 
 const RequestQuote = () => {
-  const { currentRole, isAuthenticated } = useAuth();
+  const { currentRole, isAuthenticated, loading: authLoading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [cartItems, setCartItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [fetchingCart, setFetchingCart] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
-  // Load cart from localStorage on component mount
-  useEffect(() => {
-    const savedCart = localStorage.getItem('quoteCart');
-    console.log('Loading cart from localStorage:', savedCart);
-    if (savedCart) {
-      try {
-        const parsedCart = JSON.parse(savedCart);
-        console.log('Parsed cart items:', parsedCart);
-        setCartItems(parsedCart);
-      } catch (error) {
-        console.error('Error parsing cart from localStorage:', error);
-        localStorage.removeItem('quoteCart');
-      }
-    }
-  }, []);
-
-  // Save cart to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('quoteCart', JSON.stringify(cartItems));
-  }, [cartItems]);
-
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
-
-  // Token refresh function (same as Products.js)
+  // Token refresh function
   const refreshAccessToken = async () => {
     try {
       const refreshToken = localStorage.getItem('refreshToken');
@@ -82,7 +59,7 @@ const RequestQuote = () => {
     }
   };
 
-  // Enhanced fetch with token refresh (same as Products.js)
+  // Enhanced fetch with token refresh
   const fetchWithAuth = async (url, options = {}) => {
     let token = getToken();
     
@@ -166,30 +143,101 @@ const RequestQuote = () => {
     }
   };
 
+  // Fetch current user details
+  const fetchCurrentUser = async () => {
+    if (!isAuthenticated) return null;
+    
+    try {
+      const response = await fetchWithAuth('http://optimus-india-njs-01.netbird.cloud:3006/auth/me');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch user details: ${response.status}`);
+      }
+      
+      const userData = await response.json();
+      console.log('Current user fetched:', userData);
+      setCurrentUser(userData);
+      return userData;
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+      return null;
+    }
+  };
+
+  // Load cart items from localStorage and fetch user details
+  useEffect(() => {
+    const loadCartItems = () => {
+      try {
+        console.log('Loading cart from localStorage...');
+        const savedCart = localStorage.getItem('quoteCart');
+        if (savedCart) {
+          const parsedCart = JSON.parse(savedCart);
+          console.log('Loaded cart from localStorage:', parsedCart);
+          setCartItems(parsedCart);
+        } else {
+          console.log('No cart found in localStorage');
+          setCartItems([]);
+        }
+      } catch (error) {
+        console.error('Error parsing cart from localStorage:', error);
+        localStorage.removeItem('quoteCart');
+        setCartItems([]);
+      } finally {
+        setFetchingCart(false);
+      }
+    };
+
+    // Load cart regardless of auth status
+    loadCartItems();
+    
+    // Fetch current user if authenticated
+    if (isAuthenticated && !authLoading) {
+      fetchCurrentUser();
+    }
+  }, [isAuthenticated, authLoading]);
+
+  const toggleSidebar = () => {
+    setSidebarOpen(!sidebarOpen);
+  };
+
   // Remove product from quote
   const removeFromQuote = (productId) => {
-    setCartItems(prev => prev.filter(p => p.id !== productId));
+    const updatedItems = cartItems.filter(p => (p.id !== productId && p.productId !== productId));
+    setCartItems(updatedItems);
+    localStorage.setItem('quoteCart', JSON.stringify(updatedItems));
   };
 
   // Update product quantity
   const updateQuantity = (productId, quantity) => {
     if (quantity <= 0) {
       removeFromQuote(productId);
-    } else {
-      setCartItems(prev => prev.map(p => 
-        p.id === productId ? { ...p, quantity } : p
-      ));
+      return;
     }
+
+    const updatedItems = cartItems.map(p => {
+      const matchesId = p.id === productId || p.productId === productId;
+      if (matchesId) {
+        const newTotalPrice = (p.netPrice || p.price) * quantity;
+        return { ...p, quantity, totalPrice: newTotalPrice };
+      }
+      return p;
+    });
+
+    setCartItems(updatedItems);
+    localStorage.setItem('quoteCart', JSON.stringify(updatedItems));
   };
 
   // Calculate total
   const calculateTotal = () => {
     return cartItems.reduce((total, product) => {
-      return total + (product.netPrice * product.quantity);
+      const price = product.netPrice || product.price || 0;
+      const quantity = product.quantity || 1;
+      const totalPrice = product.totalPrice || (price * quantity);
+      return total + totalPrice;
     }, 0);
   };
 
-  // Submit quote request
+  // Submit quote request using POST API
   const handleSubmitQuote = async () => {
     if (cartItems.length === 0) {
       setError('Please add at least one product to your quote.');
@@ -200,33 +248,79 @@ const RequestQuote = () => {
       setError('Please login to submit a quote request.');
       return;
     }
+
+    // Ensure we have current user details
+    let userDetails = currentUser;
+    if (!userDetails) {
+      userDetails = await fetchCurrentUser();
+      if (!userDetails) {
+        setError('Unable to fetch user details. Please try again.');
+        return;
+      }
+    }
     
     setLoading(true);
     setError(null);
     setSuccess(false);
 
     try {
-      // Prepare quote data
+      // Prepare quote data with user information
       const quoteData = {
-        products: cartItems.map(item => ({
-          productId: item.id,
+        type: 'quote',
+        
+        // User information from /auth/me
+        userId: userDetails.id || userDetails._id,
+        userEmail: userDetails.email,
+        userName: userDetails.name || userDetails.companyName,
+        userRole: userDetails.role || currentRole,
+        userLevel: userDetails.role || currentRole,
+        
+        // Customer/User details
+        customerInfo: {
+          id: userDetails.id || userDetails._id,
+          name: userDetails.name || userDetails.companyName,
+          email: userDetails.email,
+          role: userDetails.role || currentRole,
+          level: userDetails.role || currentRole,
+          company: userDetails.companyName,
+          phone: userDetails.phone || '',
+          address: userDetails.address || '',
+          submissionDate: new Date().toISOString()
+        },
+        
+        // Quote items
+        items: cartItems.map(item => ({
+          productId: item.productId || item.id,
           name: item.name,
           sku: item.sku,
           brand: item.brand,
           category: item.category,
-          msrp: item.msrp,
-          netPrice: item.netPrice,
-          quantity: item.quantity,
-          totalPrice: item.netPrice * item.quantity
+          description: item.description || '',
+          msrp: item.msrp || 0,
+          netPrice: item.netPrice || item.price || 0,
+          discount: item.discount || 0,
+          picture: item.picture || '',
+          extraFields: item.extraFields || {},
+          quantity: item.quantity || 1,
+          totalPrice: item.totalPrice || (item.netPrice || item.price || 0) * (item.quantity || 1)
         })),
+        
+        // Quote summary
         totalAmount: calculateTotal(),
-        status: 'pending',
-        userLevel: currentRole,
-        requestedAt: new Date().toISOString(),
-        additionalNotes: '' // Can be added later if needed
+        totalItems: cartItems.length,
+        itemsCount: cartItems.reduce((total, item) => total + (item.quantity || 1), 0),
+        
+        // Timestamps
+        submittedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        
+        // Additional info
+        additionalNotes: '',
+        requirements: 'Customer quote request from web portal'
       };
 
-      console.log('Submitting quote:', quoteData);
+      console.log('Submitting quote with user details:', quoteData);
 
       // Submit to API
       const response = await fetchWithAuth(
@@ -234,13 +328,13 @@ const RequestQuote = () => {
         {
           method: 'POST',
           body: JSON.stringify(quoteData),
-          signal: AbortSignal.timeout(30000) // 30 second timeout
+          signal: AbortSignal.timeout(50000)
         }
       );
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Unable to read error response');
-        console.error('Quote submission failed:', errorText);
+        console.error('Quote submission failed:', response.status, errorText);
         throw new Error(`Failed to submit quote request. Status: ${response.status}. ${errorText || ''}`);
       }
 
@@ -250,6 +344,7 @@ const RequestQuote = () => {
       // Clear cart and show success
       setCartItems([]);
       localStorage.removeItem('quoteCart');
+
       setSuccess(true);
       
       // Auto-hide success message after 5 seconds
@@ -257,7 +352,7 @@ const RequestQuote = () => {
       
     } catch (err) {
       console.error('Error submitting quote:', err);
-      setError(err.message);
+      setError(err.message || 'An error occurred while submitting your quote. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -270,6 +365,28 @@ const RequestQuote = () => {
       localStorage.removeItem('quoteCart');
     }
   };
+
+  // Get cart items count
+  const getCartItemsCount = () => {
+    return cartItems.reduce((total, item) => total + (item.quantity || 1), 0);
+  };
+
+  if (fetchingCart) {
+    return (
+      <div className="min-h-screen bg-gray-100">
+        <Sidebar isOpen={sidebarOpen} toggleSidebar={toggleSidebar} />
+        <Header toggleSidebar={toggleSidebar} />
+        <main className="pt-16">
+          <div className="p-6">
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#405952]"></div>
+              <span className="ml-3 text-gray-600">Loading your quote cart...</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -285,6 +402,11 @@ const RequestQuote = () => {
               <div>
                 <h1 className="text-3xl font-bold text-gray-900">Request Quote</h1>
                 <p className="text-gray-600">Review your selected products and submit quote request</p>
+                {currentUser && (
+                  <p className="text-sm text-gray-500 mt-1">
+                    Submitting as: {currentUser.name || currentUser.companyName} ({currentUser.role || currentRole})
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -300,7 +422,7 @@ const RequestQuote = () => {
                 </div>
                 <div className="ml-3">
                   <p className="text-sm font-medium text-green-800">
-                    Quote request submitted successfully! We will contact you soon.
+                    Quote request submitted successfully! We will contact you soon with a detailed quote.
                   </p>
                 </div>
               </div>
@@ -332,7 +454,7 @@ const RequestQuote = () => {
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
                     <ShoppingCart className="w-5 h-5" />
-                    Quote Items ({cartItems.length})
+                    Quote Items ({getCartItemsCount()})
                   </h2>
                   {cartItems.length === 0 && (
                     <a
@@ -350,7 +472,7 @@ const RequestQuote = () => {
                       </div>
                       <button
                         onClick={handleSubmitQuote}
-                        disabled={loading}
+                        disabled={loading || !isAuthenticated}
                         className="bg-[#405952] text-white px-6 py-3 rounded-lg hover:bg-[#2d3f38] transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                       >
                         {loading ? (
@@ -376,6 +498,26 @@ const RequestQuote = () => {
                   )}
                 </div>
 
+                {/* Authentication Warning */}
+                {!isAuthenticated && cartItems.length > 0 && (
+                  <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <div className="flex items-center">
+                      <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
+                      <div className="ml-3">
+                        <p className="text-sm font-medium text-yellow-800">
+                          Please login to submit your quote request.
+                        </p>
+                      </div>
+                      <a
+                        href="/login"
+                        className="ml-auto bg-yellow-100 text-yellow-800 px-3 py-1 rounded hover:bg-yellow-200"
+                      >
+                        Login
+                      </a>
+                    </div>
+                  </div>
+                )}
+
                 {cartItems.length === 0 ? (
                   <div className="text-center py-12">
                     <ShoppingCart className="w-16 h-16 mx-auto mb-4 text-gray-400" />
@@ -390,106 +532,113 @@ const RequestQuote = () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {cartItems.map(product => (
-                      <div key={product.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-3 mb-2">
-                              <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                {product.picture ? (
-                                  <img 
-                                    src={product.picture} 
-                                    alt={product.name}
-                                    className="w-10 h-10 object-contain rounded"
-                                    onError={(e) => {
-                                      e.target.style.display = 'none';
-                                      e.target.nextSibling.style.display = 'flex';
-                                    }}
-                                  />
-                                ) : null}
-                                <div 
-                                  className="w-10 h-10 flex items-center justify-center text-gray-400"
-                                  style={{ display: product.picture ? 'none' : 'flex' }}
-                                >
-                                  📦
+                    {cartItems.map(product => {
+                      const productId = product.id || product.productId;
+                      const netPrice = product.netPrice || product.price || 0;
+                      const quantity = product.quantity || 1;
+                      const totalPrice = product.totalPrice || (netPrice * quantity);
+                      
+                      return (
+                        <div key={productId} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-3 mb-2">
+                                <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                  {product.picture ? (
+                                    <img 
+                                      src={product.picture} 
+                                      alt={product.name}
+                                      className="w-10 h-10 object-contain rounded"
+                                      onError={(e) => {
+                                        e.target.style.display = 'none';
+                                        e.target.nextSibling.style.display = 'flex';
+                                      }}
+                                    />
+                                  ) : null}
+                                  <div 
+                                    className="w-10 h-10 flex items-center justify-center text-gray-400"
+                                    style={{ display: product.picture ? 'none' : 'flex' }}
+                                  >
+                                    <Package className="w-6 h-6" />
+                                  </div>
+                                </div>
+                                <div className="flex-1">
+                                  <h3 className="font-semibold text-gray-900">{product.name}</h3>
+                                  <div className="flex items-center space-x-4 text-sm text-gray-500">
+                                    <span>SKU: {product.sku}</span>
+                                    <span>Brand: {product.brand}</span>
+                                    <span>Category: {product.category}</span>
+                                  </div>
                                 </div>
                               </div>
-                              <div className="flex-1">
-                                <h3 className="font-semibold text-gray-900">{product.name}</h3>
-                                <div className="flex items-center space-x-4 text-sm text-gray-500">
-                                  <span>SKU: {product.sku}</span>
-                                  <span>Brand: {product.brand}</span>
-                                  <span>Category: {product.category}</span>
-                                </div>
-                              </div>
+                              {product.description && (
+                                <p className="text-gray-600 text-sm mb-2 ml-15">{product.description}</p>
+                              )}
                             </div>
-                            {product.description && (
-                              <p className="text-gray-600 text-sm mb-2 ml-15">{product.description}</p>
-                            )}
-                          </div>
-                          <button
-                            onClick={() => removeFromQuote(product.id)}
-                            className="text-red-600 hover:text-red-800 p-1 ml-4"
-                            title="Remove from quote"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                        
-                        <div className="mt-4 flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm text-gray-600">Qty:</span>
-                              <button
-                                onClick={() => updateQuantity(product.id, product.quantity - 1)}
-                                className="w-8 h-8 bg-gray-200 rounded flex items-center justify-center hover:bg-gray-300 text-lg font-bold"
-                              >
-                                -
-                              </button>
-                              <span className="text-sm font-medium w-8 text-center">{product.quantity}</span>
-                              <button
-                                onClick={() => updateQuantity(product.id, product.quantity + 1)}
-                                className="w-8 h-8 bg-gray-200 rounded flex items-center justify-center hover:bg-gray-300 text-lg font-bold"
-                              >
-                                +
-                              </button>
-                            </div>
+                            <button
+                              onClick={() => removeFromQuote(productId)}
+                              className="text-red-600 hover:text-red-800 p-1 ml-4"
+                              title="Remove from quote"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                           
-                          <div className="text-right">
-                            <div className="text-sm text-gray-600">
-                              ${product.netPrice.toFixed(2)} × {product.quantity}
+                          <div className="mt-4 flex items-center justify-between">
+                            <div className="flex items-center space-x-4">
+                              <div className="flex items-center space-x-2">
+                                <span className="text-sm text-gray-600">Qty:</span>
+                                <button
+                                  onClick={() => updateQuantity(productId, quantity - 1)}
+                                  className="w-8 h-8 bg-gray-200 rounded flex items-center justify-center hover:bg-gray-300 text-lg font-bold"
+                                >
+                                  -
+                                </button>
+                                <span className="text-sm font-medium w-8 text-center">{quantity}</span>
+                                <button
+                                  onClick={() => updateQuantity(productId, quantity + 1)}
+                                  className="w-8 h-8 bg-gray-200 rounded flex items-center justify-center hover:bg-gray-300 text-lg font-bold"
+                                >
+                                  +
+                                </button>
+                              </div>
                             </div>
-                            <div className="text-lg font-bold text-[#405952]">
-                              ${(product.netPrice * product.quantity).toFixed(2)}
+                            
+                            <div className="text-right">
+                              <div className="text-sm text-gray-600">
+                                ${netPrice.toFixed(2)} × {quantity}
+                              </div>
+                              <div className="text-lg font-bold text-[#405952]">
+                                ${totalPrice.toFixed(2)}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Request Quote Section */}
+            {/* Request Quote Summary Section */}
             {cartItems.length > 0 && (
-              <div className="lg:col-span-1">
-                <div className="bg-white rounded-lg shadow-md p-6 sticky top-24">
-                  <div className="text-center py-8">
+              <div className="w-full">
+                <div className="bg-white rounded-lg shadow-md p-6">
+                  <div className="text-center">
                     <div className="mb-6">
-                      <div className="text-2xl font-bold text-[#405952] mb-2">
+                      <div className="text-3xl font-bold text-[#405952] mb-2">
                         Total: ${calculateTotal().toFixed(2)}
                       </div>
                       <p className="text-gray-600">
-                        {cartItems.length} {cartItems.length === 1 ? 'product' : 'products'} in quote
+                        {getCartItemsCount()} {getCartItemsCount() === 1 ? 'product' : 'products'} in quote
                       </p>
                     </div>
 
                     <button
                       onClick={handleSubmitQuote}
-                      disabled={loading}
-                      className="w-full bg-[#405952] text-white py-4 rounded-lg hover:bg-[#2d3f38] transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed text-lg font-semibold"
+                      disabled={loading || !isAuthenticated}
+                      className="w-full max-w-md bg-[#405952] text-white py-4 rounded-lg hover:bg-[#2d3f38] transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed text-lg font-semibold mx-auto"
                     >
                       {loading ? (
                         <>
@@ -519,4 +668,3 @@ const RequestQuote = () => {
 };
 
 export default RequestQuote;
-
