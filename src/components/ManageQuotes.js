@@ -1,159 +1,333 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import { FileText, Search, Filter, Clock, DollarSign, Package, User, Eye, CheckCircle, XCircle, MessageSquare } from 'lucide-react';
+import { FileText, Search, Eye, Package, User, RefreshCw, AlertTriangle } from 'lucide-react';
+import { getToken } from '../services/auth';
 
 const ManageQuotes = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [selectedQuote, setSelectedQuote] = useState(null);
   const [showQuoteDetails, setShowQuoteDetails] = useState(false);
+  const [quotes, setQuotes] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
   };
 
-  // Mock quotes data - replace with actual API call
-  const mockQuotes = [
-    {
-      id: 'QT-001',
-      customer: {
-        name: 'John Smith',
-        email: 'john@techcorp.com',
-        company: 'TechCorp Solutions',
-        phone: '+1 (555) 123-4567'
-      },
-      status: 'pending',
-      total: 12500.00,
-      items: 3,
-      created: '2024-01-20T10:30:00Z',
-      lastUpdated: '2024-01-20T10:30:00Z',
-      requirements: 'Need delivery within 2 weeks',
-      products: [
-        { id: 'PROD-001', name: 'Cisco Router 2900', price: 2500.00, quantity: 2 },
-        { id: 'PROD-002', name: 'HP ProLiant Server', price: 4500.00, quantity: 1 },
-        { id: 'PROD-003', name: 'Dell OptiPlex Desktop', price: 1200.00, quantity: 3 }
-      ]
-    },
-    {
-      id: 'QT-002',
-      customer: {
-        name: 'Sarah Johnson',
-        email: 'sarah@innovationlabs.com',
-        company: 'Innovation Labs',
-        phone: '+1 (555) 987-6543'
-      },
-      status: 'approved',
-      total: 8750.00,
-      items: 2,
-      created: '2024-01-18T14:20:00Z',
-      lastUpdated: '2024-01-19T09:15:00Z',
-      requirements: 'Bulk order for new office setup',
-      products: [
-        { id: 'PROD-003', name: 'Dell OptiPlex Desktop', price: 1200.00, quantity: 5 },
-        { id: 'PROD-005', name: 'Samsung Monitor 27"', price: 350.00, quantity: 5 }
-      ]
-    },
-    {
-      id: 'QT-003',
-      customer: {
-        name: 'Mike Chen',
-        email: 'mike@globalsystems.com',
-        company: 'Global Systems',
-        phone: '+1 (555) 456-7890'
-      },
-      status: 'rejected',
-      total: 18900.00,
-      items: 5,
-      created: '2024-01-15T11:45:00Z',
-      lastUpdated: '2024-01-17T16:30:00Z',
-      requirements: 'Enterprise solution with support',
-      products: [
-        { id: 'PROD-001', name: 'Cisco Router 2900', price: 2500.00, quantity: 3 },
-        { id: 'PROD-002', name: 'HP ProLiant Server', price: 4500.00, quantity: 2 },
-        { id: 'PROD-004', name: 'Microsoft Office 365', price: 15.00, quantity: 50 }
-      ]
-    },
-    {
-      id: 'QT-004',
-      customer: {
-        name: 'Emily Davis',
-        email: 'emily@startupco.com',
-        company: 'StartupCo',
-        phone: '+1 (555) 321-6547'
-      },
-      status: 'pending',
-      total: 3200.00,
-      items: 2,
-      created: '2024-01-21T08:15:00Z',
-      lastUpdated: '2024-01-21T08:15:00Z',
-      requirements: 'Budget-friendly options for startup',
-      products: [
-        { id: 'PROD-003', name: 'Dell OptiPlex Desktop', price: 1200.00, quantity: 2 },
-        { id: 'PROD-005', name: 'Samsung Monitor 27"', price: 350.00, quantity: 2 }
-      ]
-    }
-  ];
+  // Token refresh function
+  const refreshAccessToken = async () => {
+    try {
+      const storedRefreshToken = localStorage.getItem('refreshToken');
+      if (!storedRefreshToken) {
+        throw new Error('No refresh token available');
+      }
 
-  // Filter quotes based on search and status
-  const filteredQuotes = mockQuotes.filter(quote => {
-    const matchesSearch = 
-      quote.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      quote.customer.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      quote.customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      quote.id.toLowerCase().includes(searchTerm.toLowerCase());
+      console.log('Attempting to refresh token...');
+      
+      const response = await fetch('http://optimus-india-njs-01.netbird.cloud:3006/auth/refresh', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ token: storedRefreshToken }),
+        credentials: 'omit',
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        throw new Error(`Token refresh failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.accessToken) {
+        // Only update the access token
+        localStorage.setItem('token', data.accessToken);
+        console.log('Token refreshed successfully');
+        return data.accessToken;
+      } else {
+        throw new Error('No access token in refresh response');
+      }
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      throw error;
+    }
+  };
+
+  // Enhanced fetch with token refresh
+  const fetchWithAuth = async (url, options = {}) => {
+    let token = getToken();
     
-    const matchesStatus = statusFilter === 'all' || quote.status === statusFilter;
+    if (!token) {
+      throw new Error('No access token available');
+    }
+
+    const fetchOptions = {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        ...options.headers
+      },
+      credentials: 'omit',
+      mode: 'cors'
+    };
+
+    try {
+      let response = await fetch(url, fetchOptions);
+      
+      // If token is invalid/expired, try to refresh
+      if (response.status === 401) {
+        console.log('Access token expired (401), attempting refresh...');
+        
+        try {
+          const newToken = await refreshAccessToken();
+          
+          // Retry the original request with new token
+          fetchOptions.headers['Authorization'] = `Bearer ${newToken}`;
+          response = await fetch(url, fetchOptions);
+          
+          if (!response.ok) {
+            throw new Error(`Request failed after token refresh: ${response.status}`);
+          }
+        } catch (refreshError) {
+          console.error('Token refresh failed:', refreshError);
+          localStorage.removeItem('token');
+          localStorage.removeItem('refreshToken');
+          window.location.href = '/login';
+          throw new Error('Authentication failed. Please login again.');
+        }
+      }
+      
+      // Handle 403 Forbidden specifically
+      if (response.status === 403) {
+        const errorText = await response.text().catch(() => 'Unable to read error response');
+        console.error('403 Forbidden response:', errorText);
+        
+        try {
+          const newToken = await refreshAccessToken();
+          
+          fetchOptions.headers['Authorization'] = `Bearer ${newToken}`;
+          const retryResponse = await fetch(url, fetchOptions);
+          
+          if (retryResponse.ok) {
+            console.log('403 resolved after token refresh');
+            return retryResponse;
+          } else {
+            throw new Error(`Still forbidden after refresh: ${retryResponse.status}`);
+          }
+        } catch (refreshError) {
+          console.error('Token refresh failed on 403:', refreshError);
+          localStorage.removeItem('token');
+          localStorage.removeItem('refreshToken');
+          throw new Error(`Access denied (403). Your session may have expired or you may not have permission. Please login again.`);
+        }
+      }
+
+      return response;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out. Please check your internet connection and try again.');
+      } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        throw new Error('Network error. Please check your internet connection and try again.');
+      }
+      throw error;
+    }
+  };
+
+  // Fetch all quotes from backend
+  const fetchQuotes = async () => {
+    try {
+      console.log('Fetching quotes from backend...');
+      const response = await fetchWithAuth('http://optimus-india-njs-01.netbird.cloud:3006/quotes');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch quotes: ${response.status}`);
+      }
+      
+      const quotesData = await response.json();
+      console.log('Quotes fetched successfully:', quotesData);
+      
+      // Handle both array and object responses
+      const quotesArray = Array.isArray(quotesData) ? quotesData : (quotesData.quotes || []);
+      setQuotes(quotesArray);
+      return quotesArray;
+    } catch (error) {
+      console.error('Error fetching quotes:', error);
+      throw error;
+    }
+  };
+
+  // Fetch all users from backend
+  const fetchUsers = async () => {
+    try {
+      console.log('Fetching users from backend...');
+      const response = await fetchWithAuth('http://optimus-india-njs-01.netbird.cloud:3006/admin/users');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch users: ${response.status}`);
+      }
+      
+      const usersData = await response.json();
+      console.log('Users fetched successfully:', usersData);
+      
+      // Handle both array and object responses
+      const usersArray = Array.isArray(usersData) ? usersData : (usersData.users || []);
+      setUsers(usersArray);
+      return usersArray;
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      // Don't throw error here as users data is supplementary
+      setUsers([]);
+      return [];
+    }
+  };
+
+  // Fetch all products from backend
+  const fetchProducts = async () => {
+    try {
+      console.log('Fetching products from backend...');
+      const response = await fetchWithAuth('http://optimus-india-njs-01.netbird.cloud:3006/products');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch products: ${response.status}`);
+      }
+      
+      const productsData = await response.json();
+      console.log('Products fetched successfully:', productsData);
+      
+      // Handle both array and object responses
+      const productsArray = Array.isArray(productsData) ? productsData : (productsData.products || []);
+      setProducts(productsArray);
+      return productsArray;
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      // Don't throw error here as products data is supplementary
+      setProducts([]);
+      return [];
+    }
+  };
+
+  // Load all data on component mount
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      setError(null);
+      
+      try {
+        // Fetch all data concurrently
+        await Promise.all([
+          fetchQuotes(),
+          fetchUsers(),
+          fetchProducts()
+        ]);
+      } catch (error) {
+        console.error('Error loading data:', error);
+        setError(error.message || 'Failed to load data. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Get user details by ID
+  const getUserById = (userId) => {
+    if (!userId) return null;
     
-    return matchesSearch && matchesStatus;
+    // Try to find user in users array
+    const foundUser = users.find(user => 
+      user.id === userId || 
+      user._id === userId ||
+      user.email === userId
+    );
+    
+    return foundUser || null;
+  };
+
+  // Get product details by ID
+  const getProductById = (productId) => {
+    if (!productId) return null;
+    
+    // Try to find product in products array
+    const foundProduct = products.find(product => 
+      product.id === productId || 
+      product._id === productId ||
+      product.productId === productId
+    );
+    
+    return foundProduct || null;
+  };
+
+  // Enhance quotes with user and product data
+  const enhancedQuotes = quotes.map(quote => {
+    const user = getUserById(quote.userId || quote.userEmail);
+    
+    // Enhance items with product details
+    const enhancedItems = (quote.items || []).map(item => {
+      const product = getProductById(item.productId);
+      return {
+        ...item,
+        productDetails: product
+      };
+    });
+
+    return {
+      ...quote,
+      user: user,
+      customerInfo: quote.customerInfo || user || {
+        name: quote.userName || 'Unknown User',
+        email: quote.userEmail || 'unknown@email.com',
+        role: quote.userRole || quote.userLevel || 'user',
+        company: 'Unknown Company'
+      },
+      items: enhancedItems
+    };
   });
 
-  // Get status badge
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      pending: { color: 'bg-yellow-100 text-yellow-800', label: 'Pending', icon: Clock },
-      approved: { color: 'bg-green-100 text-green-800', label: 'Approved', icon: CheckCircle },
-      rejected: { color: 'bg-red-100 text-red-800', label: 'Rejected', icon: XCircle }
-    };
+  // Filter quotes based on search
+  const filteredQuotes = enhancedQuotes.filter(quote => {
+    const customerInfo = quote.customerInfo || {};
+    const searchFields = [
+      customerInfo.name,
+      customerInfo.company,
+      customerInfo.email,
+      quote.userName,
+      quote.userEmail,
+      quote.id,
+      quote._id
+    ].filter(Boolean).join(' ').toLowerCase();
     
-    const config = statusConfig[status] || statusConfig.pending;
-    const IconComponent = config.icon;
+    const matchesSearch = searchTerm === '' || searchFields.includes(searchTerm.toLowerCase());
     
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}>
-        <IconComponent className="w-3 h-3 mr-1" />
-        {config.label}
-      </span>
-    );
-  };
+    return matchesSearch;
+  });
 
   // Format date
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  // Handle quote actions
-  const handleApproveQuote = (quoteId) => {
-    if (window.confirm('Are you sure you want to approve this quote?')) {
-      // TODO: Implement API call to approve quote
-      console.log('Approving quote:', quoteId);
-      alert('Quote approved successfully!');
-    }
-  };
-
-  const handleRejectQuote = (quoteId) => {
-    const reason = prompt('Please provide a reason for rejection:');
-    if (reason) {
-      // TODO: Implement API call to reject quote
-      console.log('Rejecting quote:', quoteId, 'Reason:', reason);
-      alert('Quote rejected successfully!');
+    if (!dateString) return 'N/A';
+    
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return 'Invalid Date';
     }
   };
 
@@ -161,6 +335,42 @@ const ManageQuotes = () => {
     setSelectedQuote(quote);
     setShowQuoteDetails(true);
   };
+
+  // Refresh data
+  const handleRefresh = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      await Promise.all([
+        fetchQuotes(),
+        fetchUsers(),
+        fetchProducts()
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      setError(error.message || 'Failed to refresh data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100">
+        <Sidebar isOpen={sidebarOpen} toggleSidebar={toggleSidebar} />
+        <Header toggleSidebar={toggleSidebar} />
+        <main className="pt-16">
+          <div className="p-6">
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#405952]"></div>
+              <span className="ml-3 text-gray-600">Loading quotes...</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -172,13 +382,43 @@ const ManageQuotes = () => {
         <div className="p-6">
           {/* Page Header */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Manage Quotes</h1>
-            <p className="text-gray-600">Review and manage customer quote requests</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">Manage Quotes</h1>
+                <p className="text-gray-600">Review and manage customer quote requests</p>
+              </div>
+              <button
+                onClick={handleRefresh}
+                disabled={loading}
+                className="bg-[#405952] text-white px-4 py-2 rounded-lg hover:bg-[#2d3f38] transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
           </div>
 
-          {/* Filters */}
+          {/* Error Message */}
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center">
+                <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-red-800">{error}</p>
+                </div>
+                <button 
+                  onClick={() => setError(null)}
+                  className="ml-auto text-red-400 hover:text-red-600"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Filters and Stats */}
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row gap-4 mb-4">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
@@ -189,110 +429,109 @@ const ManageQuotes = () => {
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent"
                 />
               </div>
-              <div className="relative">
-                <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="pl-10 pr-8 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent appearance-none"
-                >
-                  <option value="all">All Status</option>
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
-                </select>
-              </div>
+            </div>
+            
+            {/* Stats */}
+            <div className="text-center">
+              <div className="text-3xl font-bold text-[#405952]">{quotes.length}</div>
+              <div className="text-sm text-gray-500">Total Quotes</div>
             </div>
           </div>
 
           {/* Quotes List */}
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Quote Details
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Customer
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Total
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredQuotes.map((quote) => (
-                    <tr key={quote.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <FileText className="w-5 h-5 text-[#405952] mr-3" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{quote.id}</div>
-                            <div className="text-sm text-gray-500">{quote.items} items</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{quote.customer.name}</div>
-                          <div className="text-sm text-gray-500">{quote.customer.company}</div>
-                          <div className="text-sm text-gray-500">{quote.customer.email}</div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {getStatusBadge(quote.status)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">${quote.total.toFixed(2)}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatDate(quote.created)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleViewDetails(quote)}
-                            className="text-blue-600 hover:text-blue-900 flex items-center"
-                          >
-                            <Eye className="w-4 h-4 mr-1" />
-                            View
-                          </button>
-                          {quote.status === 'pending' && (
-                            <>
-                              <button
-                                onClick={() => handleApproveQuote(quote.id)}
-                                className="text-green-600 hover:text-green-900 flex items-center"
-                              >
-                                <CheckCircle className="w-4 h-4 mr-1" />
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => handleRejectQuote(quote.id)}
-                                className="text-red-600 hover:text-red-900 flex items-center"
-                              >
-                                <XCircle className="w-4 h-4 mr-1" />
-                                Reject
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
+            {filteredQuotes.length === 0 ? (
+              <div className="text-center py-12">
+                <FileText className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                <p className="text-gray-600 mb-2">
+                  {quotes.length === 0 ? 'No quotes found' : 'No quotes match your search criteria'}
+                </p>
+                {quotes.length === 0 && (
+                  <p className="text-sm text-gray-500">Quotes will appear here when customers submit requests</p>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Quote Details
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Customer
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Total
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Date
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredQuotes.map((quote) => {
+                      const quoteId = quote.id || quote._id;
+                      const customerInfo = quote.customerInfo || {};
+                      const itemsCount = quote.items ? quote.items.length : (quote.itemsCount || quote.totalItems || 0);
+                      const totalAmount = quote.totalAmount || quote.total || 0;
+
+                      return (
+                        <tr key={quoteId} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <FileText className="w-5 h-5 text-[#405952] mr-3" />
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">
+                                  {quoteId ? quoteId.slice(0, 8) : 'N/A'}
+                                </div>
+                                <div className="text-sm text-gray-500">{itemsCount} items</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {customerInfo.name || quote.userName || 'Unknown User'}
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                {customerInfo.company || 'Unknown Company'}
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                {customerInfo.email || quote.userEmail || 'No email'}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                Level: {customerInfo.role || quote.userRole || quote.userLevel || 'user'}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              ${totalAmount.toFixed(2)}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {formatDate(quote.createdAt || quote.submittedAt || quote.created)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button
+                              onClick={() => handleViewDetails(quote)}
+                              className="text-blue-600 hover:text-blue-900 flex items-center"
+                            >
+                              <Eye className="w-4 h-4 mr-1" />
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Quote Details Modal */}
@@ -301,10 +540,12 @@ const ManageQuotes = () => {
               <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="p-6">
                   <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-2xl font-bold text-gray-900">Quote Details - {selectedQuote.id}</h2>
+                    <h2 className="text-2xl font-bold text-gray-900">
+                      Quote Details - {(selectedQuote.id || selectedQuote._id || 'N/A').slice(0, 8)}
+                    </h2>
                     <button
                       onClick={() => setShowQuoteDetails(false)}
-                      className="text-gray-400 hover:text-gray-600"
+                      className="text-gray-400 hover:text-gray-600 text-2xl"
                     >
                       ×
                     </button>
@@ -315,10 +556,11 @@ const ManageQuotes = () => {
                     <div>
                       <h3 className="text-lg font-semibold text-gray-900 mb-4">Customer Information</h3>
                       <div className="space-y-2">
-                        <p><span className="font-medium">Name:</span> {selectedQuote.customer.name}</p>
-                        <p><span className="font-medium">Company:</span> {selectedQuote.customer.company}</p>
-                        <p><span className="font-medium">Email:</span> {selectedQuote.customer.email}</p>
-                        <p><span className="font-medium">Phone:</span> {selectedQuote.customer.phone}</p>
+                        <p><span className="font-medium">Name:</span> {selectedQuote.customerInfo?.name || selectedQuote.userName || 'Unknown User'}</p>
+                        <p><span className="font-medium">Company:</span> {selectedQuote.customerInfo?.company || 'Unknown Company'}</p>
+                        <p><span className="font-medium">Email:</span> {selectedQuote.customerInfo?.email || selectedQuote.userEmail || 'No email'}</p>
+                        <p><span className="font-medium">Phone:</span> {selectedQuote.customerInfo?.phone || 'Not provided'}</p>
+                        <p><span className="font-medium">User Level:</span> {selectedQuote.customerInfo?.role || selectedQuote.userRole || selectedQuote.userLevel || 'user'}</p>
                       </div>
                     </div>
 
@@ -326,20 +568,21 @@ const ManageQuotes = () => {
                     <div>
                       <h3 className="text-lg font-semibold text-gray-900 mb-4">Quote Information</h3>
                       <div className="space-y-2">
-                        <p><span className="font-medium">Status:</span> {getStatusBadge(selectedQuote.status)}</p>
-                        <p><span className="font-medium">Total:</span> ${selectedQuote.total.toFixed(2)}</p>
-                        <p><span className="font-medium">Items:</span> {selectedQuote.items}</p>
-                        <p><span className="font-medium">Created:</span> {formatDate(selectedQuote.created)}</p>
-                        <p><span className="font-medium">Updated:</span> {formatDate(selectedQuote.lastUpdated)}</p>
+                        <p><span className="font-medium">Total:</span> ${(selectedQuote.totalAmount || selectedQuote.total || 0).toFixed(2)}</p>
+                        <p><span className="font-medium">Items:</span> {selectedQuote.items ? selectedQuote.items.length : (selectedQuote.itemsCount || 0)}</p>
+                        <p><span className="font-medium">Created:</span> {formatDate(selectedQuote.createdAt || selectedQuote.submittedAt || selectedQuote.created)}</p>
+                        <p><span className="font-medium">Updated:</span> {formatDate(selectedQuote.updatedAt || selectedQuote.lastUpdated)}</p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Requirements */}
-                  {selectedQuote.requirements && (
+                  {/* Requirements/Notes */}
+                  {(selectedQuote.requirements || selectedQuote.additionalNotes) && (
                     <div className="mb-6">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Requirements</h3>
-                      <p className="text-gray-600 bg-gray-50 p-3 rounded-lg">{selectedQuote.requirements}</p>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Requirements/Notes</h3>
+                      <p className="text-gray-600 bg-gray-50 p-3 rounded-lg">
+                        {selectedQuote.requirements || selectedQuote.additionalNotes}
+                      </p>
                     </div>
                   )}
 
@@ -347,42 +590,51 @@ const ManageQuotes = () => {
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">Products</h3>
                     <div className="space-y-3">
-                      {selectedQuote.products.map((product) => (
-                        <div key={product.id} className="border border-gray-200 rounded-lg p-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h4 className="font-medium text-gray-900">{product.name}</h4>
-                              <p className="text-sm text-gray-500">SKU: {product.id}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-medium text-gray-900">${product.price.toFixed(2)} × {product.quantity}</p>
-                              <p className="text-sm text-gray-500">${(product.price * product.quantity).toFixed(2)}</p>
+                      {selectedQuote.items && selectedQuote.items.length > 0 ? (
+                        selectedQuote.items.map((item, index) => (
+                          <div key={item.productId || index} className="border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-3 mb-2">
+                                  {item.picture && (
+                                    <img 
+                                      src={item.picture} 
+                                      alt={item.name}
+                                      className="w-12 h-12 object-contain rounded bg-gray-50"
+                                    />
+                                  )}
+                                  <div>
+                                    <h4 className="font-medium text-gray-900">{item.name || 'Unknown Product'}</h4>
+                                    <p className="text-sm text-gray-500">
+                                      SKU: {item.sku || item.productId || 'N/A'}
+                                    </p>
+                                    <p className="text-sm text-gray-500">
+                                      Brand: {item.brand || 'N/A'} | Category: {item.category || 'N/A'}
+                                    </p>
+                                  </div>
+                                </div>
+                                {item.description && (
+                                  <p className="text-sm text-gray-600 mt-2">{item.description}</p>
+                                )}
+                              </div>
+                              <div className="text-right ml-4">
+                                <p className="font-medium text-gray-900">
+                                  ${(item.netPrice || item.price || 0).toFixed(2)} × {item.quantity || 1}
+                                </p>
+                                <p className="text-lg font-bold text-[#405952]">
+                                  ${(item.totalPrice || ((item.netPrice || item.price || 0) * (item.quantity || 1))).toFixed(2)}
+                                </p>
+                              </div>
                             </div>
                           </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8 text-gray-500">
+                          No products found in this quote
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
-
-                  {/* Actions */}
-                  {selectedQuote.status === 'pending' && (
-                    <div className="flex space-x-4 mt-6 pt-6 border-t border-gray-200">
-                      <button
-                        onClick={() => handleApproveQuote(selectedQuote.id)}
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center"
-                      >
-                        <CheckCircle className="w-4 h-4 mr-2" />
-                        Approve Quote
-                      </button>
-                      <button
-                        onClick={() => handleRejectQuote(selectedQuote.id)}
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center"
-                      >
-                        <XCircle className="w-4 h-4 mr-2" />
-                        Reject Quote
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -394,5 +646,3 @@ const ManageQuotes = () => {
 };
 
 export default ManageQuotes;
-
-

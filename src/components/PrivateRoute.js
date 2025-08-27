@@ -3,7 +3,7 @@ import { Navigate } from "react-router-dom";
 import useAuth from "../hooks/useAuth";
 
 const PrivateRoute = ({ roles, children }) => {
-  const { isAuthenticated, isAuthorized, loading } = useAuth(roles);
+  const { isAuthenticated, isAuthorized, currentRole, loading } = useAuth(roles);
 
   if (loading) {
     return (
@@ -12,8 +12,20 @@ const PrivateRoute = ({ roles, children }) => {
       </div>
     );
   }
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (!isAuthorized) return <Navigate to="/unauthorized" replace />;
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Admin override: admin can access all routes
+  if (currentRole === "admin") {
+    return children;
+  }
+
+  if (!isAuthorized) {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
   return children;
 };
 

@@ -123,10 +123,15 @@ export async function login(email, password) {
     const response = await api.post("/auth/login", { email, password });
     console.log('Login response:', response.data);
     const { accessToken, refreshToken, role } = response.data || {};
-    const token = accessToken || response.data?.token; // support either field name
-    setAuthData({ token, refreshToken, role, email });
-    console.log('Auth data set:', { token: !!token, refreshToken: !!refreshToken, role, email });
-    return { token, refreshToken, role };
+    
+    // Use only accessToken, remove fallback
+    if (!accessToken) {
+      throw new Error("No access token received from server");
+    }
+    
+    setAuthData({ token: accessToken, refreshToken, role, email });
+    console.log('Auth data set:', { token: !!accessToken, refreshToken: !!refreshToken, role, email });
+    return { token: accessToken, refreshToken, role };
   } catch (error) {
     console.error('Login error:', error);
     throw error;
@@ -138,11 +143,23 @@ export async function refreshToken() {
   if (!storedRefreshToken) {
     throw new Error("No refresh token available");
   }
-  const response = await api.post("/auth/refresh", { refreshToken: storedRefreshToken });
-  const { accessToken, refreshToken: newRefreshToken, role } = response.data || {};
-  const token = accessToken || response.data?.token;
-  setAuthData({ token, refreshToken: newRefreshToken, role });
-  return { token, refreshToken: newRefreshToken, role };
+  
+  try {
+    // API requires { "token": "<refreshToken>" } format
+    const response = await api.post("/auth/refresh", { token: storedRefreshToken });
+    const { accessToken } = response.data || {};
+    
+    if (!accessToken) {
+      throw new Error("No access token received from refresh");
+    }
+    
+    // Only update accessToken, preserve refreshToken and role
+    setAuthData({ token: accessToken });
+    return { token: accessToken };
+  } catch (error) {
+    console.error('Refresh token error:', error);
+    throw error;
+  }
 }
 
 export async function logout() {
@@ -155,25 +172,67 @@ export async function logout() {
         }
       });
     }
+  } catch (error) {
+    // Handle logout errors gracefully (401/403 are expected for expired tokens)
+    const status = error?.response?.status;
+    if (status === 401 || status === 403) {
+      console.log('Logout failed with auth error (expected for expired tokens):', status);
+    } else {
+      console.error('Logout error:', error);
+    }
   } finally {
+    // Always clear auth data regardless of API call success/failure
     clearAuthData();
+  }
+}
+
+// Get current user profile and role
+export async function getCurrentUser() {
+  try {
+    const response = await api.get("/auth/me");
+    const { role, email } = response.data || {};
+    
+    // Update stored role and email if they've changed
+    if (role || email) {
+      setAuthData({ role, email });
+    }
+    
+    return response.data;
+  } catch (error) {
+    console.error('Get current user error:', error);
+    throw error;
   }
 }
 
 // Admin APIs
 export async function getAllUsers() {
-  const response = await api.get("/admin/users");
-  return response.data;
+  try {
+    const response = await api.get("/admin/users");
+    return response.data;
+  } catch (error) {
+    console.error('Get all users error:', error);
+    throw error;
+  }
 }
 
 export async function approveUserRole(userId, newRole) {
-  const response = await api.put(`/auth/approve/${userId}`, { role: newRole });
-  return response.data;
+  try {
+    const response = await api.put(`/auth/approve/${userId}`, { role: newRole });
+    return response.data;
+  } catch (error) {
+    console.error('Approve user role error:', error);
+    throw error;
+  }
 }
 
 export async function deleteUser(userId) {
-  const response = await api.delete(`/admin/users/${userId}`);
-  return response.data;
+  try {
+    const response = await api.delete(`/admin/users/${userId}`);
+    return response.data;
+  } catch (error) {
+    console.error('Delete user error:', error);
+    throw error;
+  }
 }
 
 const authService = {
@@ -181,6 +240,7 @@ const authService = {
   login,
   refreshToken,
   logout,
+  getCurrentUser,
   getAllUsers,
   approveUserRole,
   deleteUser,

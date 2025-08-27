@@ -71,7 +71,7 @@ const Dashboard = () => {
           color: 'bg-red-500'
         }
       ];
-    } else if (currentRole === 'level2' || currentRole === 'level3') {
+    } else if (currentRole === 'professional' || currentRole === 'expert' || currentRole === 'master') {
       return [
         ...baseLinks,
         {
@@ -97,21 +97,21 @@ const Dashboard = () => {
         color: 'text-purple-600',
         bgColor: 'bg-purple-50'
       },
-      level1: {
+      professional: {
         name: 'Professional Partner',
         description: 'Access to products with professional discount rates',
         icon: Shield,
         color: 'text-blue-600',
         bgColor: 'bg-blue-50'
       },
-      level2: {
+      expert: {
         name: 'Expert Partner',
         description: 'Access to products and quotes with expert discount rates',
         icon: User,
         color: 'text-green-600',
         bgColor: 'bg-green-50'
       },
-      level3: {
+      master: {
         name: 'Master Partner',
         description: 'Access to products and quotes with master discount rates',
         icon: Crown,
@@ -120,7 +120,7 @@ const Dashboard = () => {
       }
     };
 
-    return roleInfo[currentRole] || roleInfo.level1;
+    return roleInfo[currentRole] || roleInfo.professional;
   };
 
   const quickLinks = getQuickLinks();

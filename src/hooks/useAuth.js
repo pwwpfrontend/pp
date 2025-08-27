@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getToken, getRole } from "../services/auth";
+import { getToken, getRole, getCurrentUser } from "../services/auth";
 
 export default function useAuth(requiredRoles = []) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -8,23 +8,64 @@ export default function useAuth(requiredRoles = []) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = getToken();
-    const role = getRole();
-    const authed = Boolean(token);
-    
-    console.log('useAuth effect:', { token: !!token, currentRole: role, authed, requiredRoles });
-    
-    setIsAuthenticated(authed);
-    setCurrentRole(role || null);
+    const checkAuth = async () => {
+      const token = getToken();
+      const storedRole = getRole();
+      
+      if (!token) {
+        setIsAuthenticated(false);
+        setIsAuthorized(false);
+        setCurrentRole(null);
+        setLoading(false);
+        return;
+      }
 
-    if (Array.isArray(requiredRoles) && requiredRoles.length > 0) {
-      const authorized = authed && requiredRoles.includes(role);
-      console.log('useAuth authorization:', { authed, currentRole: role, requiredRoles, authorized });
-      setIsAuthorized(authorized);
-    } else {
-      setIsAuthorized(authed);
-    }
-    setLoading(false);
+      try {
+        // Fetch current user profile to get latest role
+        const userData = await getCurrentUser();
+        const latestRole = userData?.role || storedRole;
+        
+        console.log('useAuth effect:', { 
+          token: !!token, 
+          storedRole, 
+          latestRole, 
+          requiredRoles 
+        });
+        
+        setIsAuthenticated(true);
+        setCurrentRole(latestRole);
+
+        if (Array.isArray(requiredRoles) && requiredRoles.length > 0) {
+          const authorized = requiredRoles.includes(latestRole);
+          console.log('useAuth authorization:', { 
+            authed: true, 
+            currentRole: latestRole, 
+            requiredRoles, 
+            authorized 
+          });
+          setIsAuthorized(authorized);
+        } else {
+          setIsAuthorized(true);
+        }
+      } catch (error) {
+        console.error('Error fetching current user:', error);
+        // If /auth/me fails, fall back to stored role
+        const fallbackRole = storedRole;
+        setIsAuthenticated(true);
+        setCurrentRole(fallbackRole);
+
+        if (Array.isArray(requiredRoles) && requiredRoles.length > 0) {
+          const authorized = fallbackRole && requiredRoles.includes(fallbackRole);
+          setIsAuthorized(authorized);
+        } else {
+          setIsAuthorized(true);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
   }, [requiredRoles]);
 
   return { isAuthenticated, isAuthorized, currentRole, loading };

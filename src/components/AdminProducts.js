@@ -38,6 +38,7 @@ const AdminProducts = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [deletingMany, setDeletingMany] = useState(false);
   const itemsPerPage = 10;
 
   // API Base URL
@@ -48,15 +49,57 @@ const AdminProducts = () => {
     return localStorage.getItem('token');
   };
 
+  // Refresh access token helper (same behavior as other pages)
+  const refreshAccessToken = async () => {
+    try {
+      const storedRefreshToken = localStorage.getItem('refreshToken');
+      if (!storedRefreshToken) throw new Error('No refresh token available');
+
+      const response = await fetch(`${BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: storedRefreshToken })
+      });
+      if (!response.ok) throw new Error(`Token refresh failed: ${response.status}`);
+
+      const data = await response.json();
+      if (!data.accessToken) throw new Error('No access token in refresh response');
+      localStorage.setItem('token', data.accessToken);
+      return data.accessToken;
+    } catch (err) {
+      console.error('AdminProducts refresh token error:', err);
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      throw err;
+    }
+  };
+
   // Fetch with auth helper
   const fetchWithAuth = async (path, options = {}) => {
     const token = getToken();
     const headers = new Headers(options.headers || {});
-    if (!headers.has('Authorization')) {
+    if (!headers.has('Authorization') && token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
+    // If the body is FormData, DO NOT set Content-Type; browser will set boundary.
+    const isFormData = options.body instanceof FormData;
+    if (isFormData) {
+      headers.delete('Content-Type');
+    }
 
-    const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+    const doFetch = async () => fetch(`${BASE_URL}${path}`, { ...options, headers });
+
+    let res = await doFetch();
+    if (res.status === 401 || res.status === 403) {
+      try {
+        const newToken = await refreshAccessToken();
+        headers.set('Authorization', `Bearer ${newToken}`);
+        res = await doFetch();
+      } catch (e) {
+        // bubble up to caller; page-level error UI will handle
+        throw e;
+      }
+    }
     return res;
   };
 
@@ -69,25 +112,23 @@ const AdminProducts = () => {
 
   const buildProductFormData = (values, files) => {
     const fd = new FormData();
-    fd.append('product_name', values.product_name || '');
-    fd.append('sku/model', values['sku/model'] || values.skuModel || '');
-    fd.append('msrp', String(values.msrp || ''));
-    fd.append('discount', String(values.discount || ''));
-    fd.append('description', values.description || '');
-    fd.append('brand', values.brand || '');
-    fd.append('category', values.category || '');
-    if (values.models != null) {
-      const modelsString = typeof values.models === 'string' ? values.models : JSON.stringify(values.models);
-      fd.append('models', modelsString);
-    }
+    // Text/number fields as strings
+    fd.append('product_name', values.product_name ?? '');
+    fd.append('sku/model', values['sku/model'] ?? values.skuModel ?? '');
+    fd.append('msrp', values.msrp != null ? String(values.msrp) : '');
+    fd.append('discount_expert', values.discount_expert != null ? String(values.discount_expert) : '');
+    fd.append('discount_professional', values.discount_professional != null ? String(values.discount_professional) : '');
+    fd.append('discount_master', values.discount_master != null ? String(values.discount_master) : '');
+    fd.append('description', values.description ?? '');
+    fd.append('brand', values.brand ?? '');
+    fd.append('category', values.category ?? '');
+
+    // Files — append ONLY if present
     if (files?.picture) {
-      fd.append('picture', files.picture);
+      // Use the field name the backend persists as (product_image)
+      fd.append('product_image', files.picture);
     }
-    if (files?.model_pictures?.length) {
-      for (const f of files.model_pictures) {
-        fd.append('model_pictures', f);
-      }
-    }
+
     return fd;
   };
 
@@ -166,19 +207,20 @@ const AdminProducts = () => {
 
   // Handle bulk delete
   const handleBulkDelete = async () => {
-    if (selectedProducts.size === 0) return;
-    
-    if (window.confirm(`Are you sure you want to delete ${selectedProducts.size} products?`)) {
-      try {
-        await apiDeleteMany(Array.from(selectedProducts));
-        // Remove deleted products from state
-        setProducts(prev => prev.filter(p => !selectedProducts.has(p._id)));
-        setSelectedProducts(new Set());
-        alert('Products deleted successfully');
-      } catch (err) {
-        console.error('Bulk delete error:', err);
-        alert('Failed to delete products: ' + err.message);
-      }
+    if (selectedProducts.size === 0 || deletingMany) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedProducts.size} products?`)) return;
+
+    try {
+      setDeletingMany(true);
+      await apiDeleteMany(Array.from(selectedProducts));
+      setProducts(prev => prev.filter(p => !selectedProducts.has(p._id)));
+      setSelectedProducts(new Set());
+      alert('Products deleted successfully');
+    } catch (err) {
+      console.error('Bulk delete error:', err);
+      alert('Failed to delete products: ' + err.message);
+    } finally {
+      setDeletingMany(false);
     }
   };
 
@@ -357,11 +399,40 @@ const AdminProducts = () => {
       <Header toggleSidebar={toggleSidebar} />
 
       <main className="pt-16">
-        {/* Page Header - Always at top - EXACTLY matching Products.js */}
+        {/* Page Header - Updated with right-aligned actions */}
         <div className="bg-gray-100 p-6 pb-3">
-          <h1 className="text-3xl font-bold text-gray-900">Admin Products</h1>
-          <div className="mt-2 text-sm text-[#405952]">
-            Manage your product catalog
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Admin Products</h1>
+              <div className="mt-1 text-sm text-[#405952]">Manage your product catalog</div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {selectedProducts.size > 0 && (
+                <button
+                  type="button"
+                  disabled={deletingMany}
+                  aria-busy={deletingMany ? 'true' : 'false'}
+                  onClick={(e) => { e.stopPropagation(); handleBulkDelete(); }}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                >
+                  {deletingMany ? 'Deleting...' : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Delete Selected ({selectedProducts.size})
+                    </>
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowAddModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-[#405952] text-white rounded-lg hover:bg-[#2d3f38] transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Add Product
+              </button>
+            </div>
           </div>
         </div>
 
@@ -430,8 +501,16 @@ const AdminProducts = () => {
                         <span className="font-semibold">${(selectedProduct.msrp || 0).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Discount:</span>
-                        <span className="font-semibold text-green-600">{(selectedProduct.discount || 0).toFixed(0)}%</span>
+                        <span className="text-gray-600">Discount (Professional):</span>
+                        <span className="font-semibold text-green-600">{(selectedProduct.discount_professional || 0).toFixed(0)}%</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Discount (Expert):</span>
+                        <span className="font-semibold text-green-600">{(selectedProduct.discount_expert || 0).toFixed(0)}%</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Discount (Master):</span>
+                        <span className="font-semibold text-green-600">{(selectedProduct.discount_master || 0).toFixed(0)}%</span>
                       </div>
                     </div>
                   </div>
@@ -460,29 +539,9 @@ const AdminProducts = () => {
         )}
 
         <div className="p-6 pt-3">
-          {/* Filters - EXACTLY matching Products.js layout */}
+          {/* Filters - Updated without action buttons */}
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              {/* Add Product Button */}
-              <div className="flex items-center">
-                <button
-                  onClick={() => setShowAddModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#405952] text-white rounded-lg hover:bg-[#2d3f38] transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Product
-                </button>
-                {selectedProducts.size > 0 && (
-                  <button
-                    onClick={handleBulkDelete}
-                    className="ml-2 flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete Selected ({selectedProducts.size})
-                  </button>
-                )}
-              </div>
-
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -543,9 +602,9 @@ const AdminProducts = () => {
             </div>
           </div>
 
-          {/* Products Table - EXACTLY matching Products.js */}
+          {/* Products Table - Updated with responsive columns */}
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto max-h-96 overflow-y-auto">
+            <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -560,20 +619,20 @@ const AdminProducts = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Product
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
                       Brand
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
                       SKU
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
                       Category
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       MSRP
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Discount
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
+                      Discounts
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
@@ -633,24 +692,26 @@ const AdminProducts = () => {
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4 whitespace-nowrap hidden sm:table-cell">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                             {product.brand}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 hidden sm:table-cell">
                           {product['sku/model'] || product.sku}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell">
                           {product.category}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           ${(product.msrp || 0).toFixed(2)}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            {(product.discount || 0).toFixed(0)}%
-                          </span>
+                        <td className="px-6 py-4 whitespace-nowrap hidden sm:table-cell text-center">
+                          <div className="flex items-center justify-center gap-1 text-xs">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-100 text-green-800">P {(product.discount_professional || 0).toFixed(0)}%</span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-100 text-green-800">E {(product.discount_expert || 0).toFixed(0)}%</span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-100 text-green-800">M {(product.discount_master || 0).toFixed(0)}%</span>
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           <div className="flex items-center space-x-2">
@@ -817,16 +878,16 @@ const AdminProductFormModal = ({ visible, mode, initialValues, onClose, onSubmit
     product_name: initialValues?.product_name || initialValues?.name || '',
     'sku/model': initialValues?.['sku/model'] || initialValues?.sku || '',
     msrp: initialValues?.msrp || '',
-    discount: initialValues?.discount || '',
+    discount_expert: initialValues?.discount_expert || '',
+    discount_professional: initialValues?.discount_professional || '',
+    discount_master: initialValues?.discount_master || '',
     description: initialValues?.description || '',
     brand: initialValues?.brand || '',
-    category: initialValues?.category || '',
-    models: initialValues?.models || ''
+    category: initialValues?.category || ''
   });
 
   const [files, setFiles] = useState({
-    picture: null,
-    model_pictures: []
+    picture: null
   });
 
   const [imagePreview, setImagePreview] = useState(
@@ -859,10 +920,7 @@ const AdminProductFormModal = ({ visible, mode, initialValues, onClose, onSubmit
     }
   };
 
-  const handleModelPicturesUpload = (event) => {
-    const fileList = Array.from(event.target.files);
-    setFiles(prev => ({ ...prev, model_pictures: fileList }));
-  };
+  
 
   const removeImage = () => {
     setFiles(prev => ({ ...prev, picture: null }));
@@ -877,8 +935,14 @@ const AdminProductFormModal = ({ visible, mode, initialValues, onClose, onSubmit
     if (!formData.msrp || isNaN(formData.msrp) || parseFloat(formData.msrp) <= 0) {
       newErrors.msrp = 'Valid MSRP is required';
     }
-    if (!formData.discount || isNaN(formData.discount) || parseFloat(formData.discount) < 0) {
-      newErrors.discount = 'Valid discount is required';
+    if (formData.discount_expert === '' || isNaN(formData.discount_expert) || parseFloat(formData.discount_expert) < 0) {
+      newErrors.discount_expert = 'Valid expert discount is required';
+    }
+    if (formData.discount_professional === '' || isNaN(formData.discount_professional) || parseFloat(formData.discount_professional) < 0) {
+      newErrors.discount_professional = 'Valid professional discount is required';
+    }
+    if (formData.discount_master === '' || isNaN(formData.discount_master) || parseFloat(formData.discount_master) < 0) {
+      newErrors.discount_master = 'Valid master discount is required';
     }
     if (!formData.description.trim()) newErrors.description = 'Description is required';
     if (!formData.brand.trim()) newErrors.brand = 'Brand is required';
@@ -1017,21 +1081,61 @@ const AdminProductFormModal = ({ visible, mode, initialValues, onClose, onSubmit
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Discount *
+                  Discount (Professional) *
                 </label>
                 <input
                   type="number"
-                  name="discount"
-                  value={formData.discount}
+                  name="discount_professional"
+                  value={formData.discount_professional}
                   onChange={handleChange}
                   min="0"
                   step="0.01"
                   className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent ${
-                    errors.discount ? 'border-red-500' : 'border-gray-300'
+                    errors.discount_professional ? 'border-red-500' : 'border-gray-300'
                   }`}
                 />
-                {errors.discount && (
-                  <p className="text-red-500 text-xs mt-1">{errors.discount}</p>
+                {errors.discount_professional && (
+                  <p className="text-red-500 text-xs mt-1">{errors.discount_professional}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Discount (Expert) *
+                </label>
+                <input
+                  type="number"
+                  name="discount_expert"
+                  value={formData.discount_expert}
+                  onChange={handleChange}
+                  min="0"
+                  step="0.01"
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent ${
+                    errors.discount_expert ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                />
+                {errors.discount_expert && (
+                  <p className="text-red-500 text-xs mt-1">{errors.discount_expert}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Discount (Master) *
+                </label>
+                <input
+                  type="number"
+                  name="discount_master"
+                  value={formData.discount_master}
+                  onChange={handleChange}
+                  min="0"
+                  step="0.01"
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent ${
+                    errors.discount_master ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                />
+                {errors.discount_master && (
+                  <p className="text-red-500 text-xs mt-1">{errors.discount_master}</p>
                 )}
               </div>
 
@@ -1090,32 +1194,7 @@ const AdminProductFormModal = ({ visible, mode, initialValues, onClose, onSubmit
               )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Model Pictures (Multiple)
-              </label>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleModelPicturesUpload}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Models (JSON)
-              </label>
-              <textarea
-                name="models"
-                value={formData.models}
-                onChange={handleChange}
-                rows="3"
-                placeholder="Optional JSON string for models data"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#405952] focus:border-transparent"
-              />
-            </div>
+            
 
             {/* Action Buttons */}
             <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">

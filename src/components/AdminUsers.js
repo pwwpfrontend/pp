@@ -34,6 +34,7 @@ const AdminUsers = () => {
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [roleToSet, setRoleToSet] = useState('professional');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -79,33 +80,47 @@ const AdminUsers = () => {
     return matchesSearch && matchesStatus && matchesRole;
   });
 
-  // Handle user approval
-  const handleApproveUser = async (userId) => {
+  // Handle user approval with actual backend call
+  const handleApproveUser = async (userId, newRole = 'professional') => {
+    setActionLoading(true);
     try {
-      // TODO: Implement actual API call
+      await approveUserRole(userId, newRole);
+      
+      // Update local state after successful backend call
       setUsers(prev => prev.map(user => 
         user.id === userId 
-          ? { ...user, status: 'approved', approvedDate: new Date().toISOString().split('T')[0] }
+          ? { ...user, status: 'approved', role: newRole, approvedDate: new Date().toISOString().split('T')[0] }
           : user
       ));
+      
+      console.log(`User ${userId} approved with role: ${newRole}`);
     } catch (error) {
       console.error('Error approving user:', error);
-      alert('Failed to approve user. Please try again.');
+      const errorMsg = error?.response?.data?.message || 'Failed to approve user. Please try again.';
+      alert(errorMsg);
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  // Handle user rejection
+  // Handle user rejection (if backend supports it)
   const handleRejectUser = async (userId) => {
+    setActionLoading(true);
     try {
-      // TODO: Implement actual API call
+      // TODO: Implement actual reject API call if backend supports it
+      // For now, just update local state
       setUsers(prev => prev.map(user => 
         user.id === userId 
           ? { ...user, status: 'rejected', rejectedDate: new Date().toISOString().split('T')[0] }
           : user
       ));
+      
+      console.log(`User ${userId} rejected`);
     } catch (error) {
       console.error('Error rejecting user:', error);
       alert('Failed to reject user. Please try again.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -118,14 +133,20 @@ const AdminUsers = () => {
 
   const submitRoleUpdate = async () => {
     if (!selectedUser) return;
+    
+    setActionLoading(true);
     try {
       await approveUserRole(selectedUser.id, roleToSet);
       setUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, role: roleToSet, status: 'approved' } : u));
       setShowRoleModal(false);
       setSelectedUser(null);
+      console.log(`User ${selectedUser.id} role updated to: ${roleToSet}`);
     } catch (error) {
       console.error('Error updating user role:', error);
-      alert('Failed to update user role. Please try again.');
+      const errorMsg = error?.response?.data?.message || 'Failed to update user role. Please try again.';
+      alert(errorMsg);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -168,7 +189,7 @@ const AdminUsers = () => {
     
     return (
       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}>
-        <IconComponent className="w-3 h-3 mr-1" />
+        <IconComponent className="w-5 h-5 mr-1" />
         {config.name}
       </span>
     );
@@ -435,15 +456,17 @@ const AdminUsers = () => {
                             {user.status === 'pending' && (
                               <>
                                 <button
-                                  onClick={() => handleApproveUser(user.id)}
-                                  className="text-green-600 hover:text-green-900 p-1 rounded hover:bg-green-50"
-                                  title="Approve"
+                                  onClick={() => handleApproveUser(user.id, 'professional')}
+                                  disabled={actionLoading}
+                                  className="text-green-600 hover:text-green-900 p-1 rounded hover:bg-green-50 disabled:opacity-50"
+                                  title="Approve as Professional"
                                 >
                                   <CheckCircle className="w-4 h-4" />
                                 </button>
                                 <button
                                   onClick={() => handleRejectUser(user.id)}
-                                  className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                                  disabled={actionLoading}
+                                  className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50 disabled:opacity-50"
                                   title="Reject"
                                 >
                                   <XCircle className="w-4 h-4" />
@@ -455,14 +478,16 @@ const AdminUsers = () => {
                               <>
                                 <button
                                   onClick={() => handleOpenRoleModal(user)}
-                                  className="text-gray-700 hover:text-gray-900 p-1 rounded hover:bg-gray-50"
+                                  disabled={actionLoading}
+                                  className="text-gray-700 hover:text-gray-900 p-1 rounded hover:bg-gray-50 disabled:opacity-50"
                                   title="Update Role"
                                 >
                                   <Edit className="w-4 h-4" />
                                 </button>
                                 <button
                                   onClick={() => { setSelectedUser(user); setShowDeleteModal(true); }}
-                                  className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                                  disabled={actionLoading}
+                                  className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50 disabled:opacity-50"
                                   title="Delete"
                                 >
                                   <XCircle className="w-4 h-4" />
@@ -504,8 +529,20 @@ const AdminUsers = () => {
               </select>
             </div>
             <div className="p-6 flex justify-end space-x-3 border-t">
-              <button onClick={() => setShowRoleModal(false)} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Cancel</button>
-              <button onClick={submitRoleUpdate} className="px-4 py-2 bg-[#405952] text-white rounded hover:bg-[#30423f]">Update</button>
+              <button 
+                onClick={() => setShowRoleModal(false)} 
+                className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200"
+                disabled={actionLoading}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={submitRoleUpdate} 
+                className="px-4 py-2 bg-[#405952] text-white rounded hover:bg-[#30423f] disabled:opacity-50"
+                disabled={actionLoading}
+              >
+                {actionLoading ? "Updating..." : "Update"}
+              </button>
             </div>
           </div>
         </div>
@@ -522,18 +559,35 @@ const AdminUsers = () => {
               <p>Are you sure you want to delete <span className="font-medium">{selectedUser.name || selectedUser.email}</span>? This action cannot be undone.</p>
             </div>
             <div className="p-6 flex justify-end space-x-3 border-t">
-              <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Cancel</button>
-              <button onClick={async () => {
-                try {
-                  await deleteUser(selectedUser.id);
-                  setUsers(prev => prev.filter(u => u.id !== selectedUser.id));
-                  setShowDeleteModal(false);
-                  setSelectedUser(null);
-                } catch (err) {
-                  console.error('Delete failed', err);
-                  alert('Failed to delete user.');
-                }
-              }} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Delete</button>
+              <button 
+                onClick={() => setShowDeleteModal(false)} 
+                className="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200"
+                disabled={actionLoading}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={async () => {
+                  try {
+                    setActionLoading(true);
+                    await deleteUser(selectedUser.id);
+                    setUsers(prev => prev.filter(u => u.id !== selectedUser.id));
+                    setShowDeleteModal(false);
+                    setSelectedUser(null);
+                    console.log(`User ${selectedUser.id} deleted successfully`);
+                  } catch (err) {
+                    console.error('Delete failed', err);
+                    const errorMsg = err?.response?.data?.message || 'Failed to delete user.';
+                    alert(errorMsg);
+                  } finally {
+                    setActionLoading(false);
+                  }
+                }} 
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                disabled={actionLoading}
+              >
+                {actionLoading ? "Deleting..." : "Delete"}
+              </button>
             </div>
           </div>
         </div>

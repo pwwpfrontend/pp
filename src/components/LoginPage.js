@@ -31,16 +31,24 @@ const LoginPage = () => {
       console.log('Login result:', result);
       
       if (result?.role) {
-        // route by role (basic example)
-        if (result.role === "admin") {
-          console.log('Navigating to admin products');
-          navigate("/admin/products", { replace: true });
+        // Role-based redirection mapped to existing routes
+        const roleRoutes = {
+          admin: "/admin/products",
+          professional: "/dashboard",
+          expert: "/dashboard",
+          master: "/dashboard"
+        };
+        
+        const targetRoute = roleRoutes[result.role];
+        if (targetRoute) {
+          console.log(`Navigating to ${targetRoute} for role: ${result.role}`);
+          navigate(targetRoute, { replace: true });
         } else {
-          console.log('Navigating to dashboard');
+          console.log(`No specific route for role: ${result.role}, falling back to dashboard`);
           navigate("/dashboard", { replace: true });
         }
       } else {
-        console.log('No role, navigating to dashboard');
+        console.log('No role received, navigating to dashboard');
         navigate("/dashboard", { replace: true });
       }
     } catch (err) {
