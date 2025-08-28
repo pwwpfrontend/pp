@@ -23,7 +23,7 @@ import {
 import useAuth from '../hooks/useAuth';
 
 const AdminProducts = () => {
-  const { currentRole } = useAuth();
+  const { currentRole, loading: authLoading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -333,6 +333,23 @@ const AdminProducts = () => {
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedProducts = filteredProducts.slice(startIndex, startIndex + itemsPerPage);
+
+  // Wait for auth to resolve to avoid unauthorized flicker
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-100">
+        <Sidebar isOpen={sidebarOpen} toggleSidebar={toggleSidebar} />
+        <Header toggleSidebar={toggleSidebar} />
+        <main className="pt-16">
+          <div className="p-6">
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#405952]"></div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   // Role guard - only admin can access
   if (currentRole !== 'admin') {

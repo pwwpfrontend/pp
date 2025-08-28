@@ -69,11 +69,15 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     const status = error?.response?.status;
+    const backendMsg = error?.response?.data?.message?.toString()?.toLowerCase() || '';
 
     // Avoid infinite loop and ignore for refresh endpoint itself
     const isAuthEndpoint = originalRequest?.url?.includes("/login") || originalRequest?.url?.includes("/refresh") || originalRequest?.url?.includes("/logout");
 
-    if (status === 401 && !originalRequest._retry && !isAuthEndpoint) {
+    const tokenLikelyInvalid = backendMsg.includes('token') || backendMsg.includes('jwt') || backendMsg.includes('expired') || backendMsg.includes('invalid');
+    const shouldAttemptRefresh = (status === 401) || (status === 403 && tokenLikelyInvalid);
+
+    if (shouldAttemptRefresh && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
 
       try {

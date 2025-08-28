@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import { getAllUsers, approveUserRole, deleteUser } from '../services/auth';
+import { getAllUsers, approveUserRole, deleteUser, getToken, getRole } from '../services/auth';
 import { 
   Users, 
   Search, 
   Filter, 
   CheckCircle,
   XCircle,
+  Trash2,
   Edit,
   Eye,
   Shield,
@@ -44,6 +45,10 @@ const AdminUsers = () => {
     const fetchUsers = async () => {
       setLoading(true);
       try {
+        // Debug auth context before API call
+        const tokenPresent = !!getToken();
+        const role = getRole();
+        console.log('AdminUsers: fetching users with tokenPresent:', tokenPresent, 'role:', role);
         const data = await getAllUsers();
         const normalized = (data || []).map(u => ({
           id: u._id,
@@ -54,12 +59,19 @@ const AdminUsers = () => {
           location: u.companyAddress,
           status: u.role === 'pending' ? 'pending' : 'approved',
           role: u.role,
+          // Try to detect uploaded document url from various possible fields
+          documentUrl: u.certificate || u.certificateUrl || u.documentUrl || u.document || (Array.isArray(u.documents) ? u.documents[0] : (u.documents?.certificate || null)) || null,
           appliedDate: '',
         }));
         setUsers(normalized);
       } catch (error) {
-        console.error('Error fetching users:', error);
-        setError('Failed to fetch users. Please try again.');
+        console.error('Error fetching users:', error?.response || error);
+        const status = error?.response?.status;
+        const backendMsg = error?.response?.data?.message;
+        const msg = status
+          ? `Failed to fetch users (HTTP ${status})${backendMsg ? `: ${backendMsg}` : ''}`
+          : 'Failed to fetch users. Please check your connection and try again.';
+        setError(msg);
       } finally {
         setLoading(false);
       }
@@ -253,16 +265,50 @@ const AdminUsers = () => {
               </div>
             </div>
             
+            {selectedUser.documentUrl && (
+              <div className="mt-6">
+                <h3 className="font-medium text-gray-900 mb-2">Submitted Document</h3>
+                <div className="space-y-3">
+                  {/* Quick open/download link */}
+                  <a
+                    href={selectedUser.documentUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block px-3 py-2 text-sm bg-[#405952] text-white rounded hover:bg-[#2d3f38]"
+                  >
+                    Open Document
+                  </a>
+                  {/* Inline preview if image or PDF */}
+                  {(() => {
+                    const url = String(selectedUser.documentUrl || '').toLowerCase();
+                    const isImage = url.endsWith('.png') || url.endsWith('.jpg') || url.endsWith('.jpeg') || url.endsWith('.gif') || url.endsWith('.webp');
+                    const isPdf = url.endsWith('.pdf');
+                    if (isImage) {
+                      return (
+                        <div className="border rounded-md p-2 bg-gray-50">
+                          <img src={selectedUser.documentUrl} alt="Uploaded Document" className="max-h-80 object-contain mx-auto" />
+                        </div>
+                      );
+                    }
+                    if (isPdf) {
+                      return (
+                        <div className="border rounded-md bg-gray-50" style={{ height: '420px' }}>
+                          <iframe title="Document Preview" src={selectedUser.documentUrl} className="w-full h-full rounded-md" />
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+              </div>
+            )}
+
             <div className="mt-6">
               <h3 className="font-medium text-gray-900 mb-2">Partnership Details</h3>
               <div className="space-y-3">
                 <div>
                   <label className="text-sm text-gray-500">Current Role</label>
                   <div className="mt-1">{getRoleBadge(selectedUser.role)}</div>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-500">Applied Date</label>
-                  <p className="text-gray-900">{selectedUser.appliedDate}</p>
                 </div>
                 {selectedUser.approvedDate && (
                   <div>
@@ -405,9 +451,6 @@ const AdminUsers = () => {
                         Role
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Applied
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Actions
                       </th>
                     </tr>
@@ -439,9 +482,6 @@ const AdminUsers = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {getRoleBadge(user.role)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {user.appliedDate}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="flex space-x-2">
@@ -490,7 +530,7 @@ const AdminUsers = () => {
                                   className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50 disabled:opacity-50"
                                   title="Delete"
                                 >
-                                  <XCircle className="w-4 h-4" />
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
                               </>
                             )}

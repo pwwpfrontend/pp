@@ -22,7 +22,6 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
       return [
         { name: 'Dashboard', path: '/dashboard', icon: Home },
         { name: 'Admin Products', path: '/admin/products', icon: Folder },
-        { name: 'Admin Pricing', path: '/admin/pricing', icon: Settings },
         { name: 'Admin Users', path: '/admin/users', icon: Users },
         { name: 'Manage Quotes', path: '/admin/quotes', icon: MessageSquare },
       ];
@@ -54,7 +53,7 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const displayName = useMemo(() => storedName || storedRole || 'Account', [storedName, storedRole]);
+  const displayName = useMemo(() => storedName || storedEmail || 'Account', [storedName, storedEmail]);
   const displayLetter = useMemo(() => (displayName?.[0] || 'A').toUpperCase(), [displayName]);
 
   const handleToggleMenu = () => setIsMenuOpen((prev) => !prev);

@@ -8,7 +8,6 @@ import RequestQuote from "./components/RequestQuote";
 import ManageQuotes from "./components/ManageQuotes";
 import Support from "./components/Support";
 import AdminProducts from "./components/AdminProducts";
-import AdminPricing from "./components/AdminPricing";
 import AdminUsers from "./components/AdminUsers";
 import PrivateRoute from "./components/PrivateRoute";
 import RoleGuard from "./components/RoleGuard";
@@ -36,7 +35,7 @@ function App() {
 
         {/* Admin-only routes */}
         <Route path="/admin/products" element={<RoleGuard allowedRoles={["admin"]}><AdminProducts /></RoleGuard>} />
-        <Route path="/admin/pricing" element={<RoleGuard allowedRoles={["admin"]}><AdminPricing /></RoleGuard>} />
+        {/* AdminPricing route removed */}
         <Route path="/admin/users" element={<RoleGuard allowedRoles={["admin"]}><AdminUsers /></RoleGuard>} />
         <Route path="/admin/quotes" element={<RoleGuard allowedRoles={["admin"]}><ManageQuotes /></RoleGuard>} />
         </Routes>
